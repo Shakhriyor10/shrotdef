@@ -166,15 +166,20 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
         f"Tavsif: {product['description'] or 'Kiritilmagan'}"
     )
     if photos:
-        builder = MediaGroupBuilder()
-        for index, file_id in enumerate(photos[:3]):
-            builder.add_photo(media=file_id, caption=caption if index == 0 else None)
-        await bot.send_media_group(chat_id=chat_id, media=builder.build())
-        await bot.send_message(
+        await bot.send_photo(
             chat_id=chat_id,
-            text="Buyurtma berish uchun pastdagi tugmani bosing.",
+            photo=photos[0],
+            caption=caption,
             reply_markup=product_inline_keyboard(product["id"], admin),
         )
+        remaining_photos = photos[1:3]
+        if len(remaining_photos) == 1:
+            await bot.send_photo(chat_id=chat_id, photo=remaining_photos[0])
+        elif len(remaining_photos) > 1:
+            builder = MediaGroupBuilder()
+            for file_id in remaining_photos:
+                builder.add_photo(media=file_id)
+            await bot.send_media_group(chat_id=chat_id, media=builder.build())
     else:
         await bot.send_message(
             chat_id=chat_id,
