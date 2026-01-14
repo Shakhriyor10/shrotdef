@@ -131,6 +131,13 @@ def is_cancel_message(message: types.Message) -> bool:
     return bool(message.text and message.text.strip().lower() == "bekor qilish")
 
 
+def format_user_contact(first_name: Optional[str], last_name: Optional[str], phone: Optional[str]) -> str:
+    name_parts = [part for part in [first_name, last_name] if part]
+    full_name = " ".join(name_parts) if name_parts else "Noma'lum foydalanuvchi"
+    phone_display = phone or "Telefon yo'q"
+    return f"{full_name} ({phone_display})"
+
+
 async def cancel_admin_action(message: types.Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer("Amal bekor qilindi.", reply_markup=user_keyboard(True))
@@ -612,8 +619,26 @@ async def main() -> None:
             return
         total = db.count_users()
         active = db.count_active_users(30)
+        top_purchasers = db.list_top_purchasers()
+        top_active_users = db.list_top_active_users()
+        purchaser_lines = []
+        for idx, row in enumerate(top_purchasers, start=1):
+            contact = format_user_contact(row["first_name"], row["last_name"], row["phone"])
+            purchaser_lines.append(f"{idx}. {contact} — {row['order_count']} ta")
+        active_lines = []
+        for idx, row in enumerate(top_active_users, start=1):
+            contact = format_user_contact(row["first_name"], row["last_name"], row["phone"])
+            active_lines.append(f"{idx}. {contact} — {row['activity_count']} ta")
+        purchasers_text = "\n".join(purchaser_lines) if purchaser_lines else "Hozircha ma'lumot yo'q."
+        active_users_text = "\n".join(active_lines) if active_lines else "Hozircha ma'lumot yo'q."
         await message.answer(
-            f"Umumiy foydalanuvchilar: {total}\nSo'nggi 30 kunda faol: {active}"
+            "Statistika:\n"
+            f"Umumiy foydalanuvchilar: {total}\n"
+            f"So'nggi 30 kunda faol: {active}\n\n"
+            "Ko'p marta buyurtma bergan foydalanuvchilar:\n"
+            f"{purchasers_text}\n\n"
+            "Botdan ko'p foydalanadigan foydalanuvchilar:\n"
+            f"{active_users_text}"
         )
 
     @dp.message(F.text == "Buyurtmalar ro'yxati")
