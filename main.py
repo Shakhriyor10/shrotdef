@@ -160,7 +160,6 @@ def format_order_message(order, include_id: bool = True, include_address: bool =
             f"Mahsulot: {order['product_name']}",
             f"Miqdor: {order['quantity']}",
             f"Narx (1 kg, ariza vaqti): {format_price(price_per_kg)}",
-            f"Jami narx: {format_deal_price(order['quantity'], price_per_kg)}",
             f"Telefon: {order['phone'] or 'Kiritilmagan'}",
         ]
     )
