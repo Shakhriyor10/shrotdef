@@ -1,0 +1,224 @@
+import sqlite3
+from datetime import datetime, timedelta
+from typing import Iterable, Optional
+
+DB_PATH = "bot.sqlite3"
+
+
+def get_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tg_id INTEGER UNIQUE NOT NULL,
+                first_name TEXT,
+                last_name TEXT,
+                phone TEXT,
+                created_at TEXT NOT NULL,
+                last_active TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                price_per_kg REAL NOT NULL,
+                description TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS product_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                file_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                quantity TEXT NOT NULL,
+                address TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+
+def add_or_update_user(tg_id: int, first_name: str, last_name: Optional[str]) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM users WHERE tg_id = ?", (tg_id,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE users
+                SET first_name = ?, last_name = ?, last_active = ?
+                WHERE tg_id = ?
+                """,
+                (first_name, last_name, now, tg_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO users (tg_id, first_name, last_name, created_at, last_active)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (tg_id, first_name, last_name, now, now),
+            )
+
+
+def update_user_phone(tg_id: int, phone: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET phone = ? WHERE tg_id = ?",
+            (phone, tg_id),
+        )
+
+
+def update_last_active(tg_id: int) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET last_active = ? WHERE tg_id = ?",
+            (now, tg_id),
+        )
+
+
+def get_user_by_tg_id(tg_id: int) -> Optional[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM users WHERE tg_id = ?", (tg_id,)
+        ).fetchone()
+
+
+def list_users() -> Iterable[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute("SELECT * FROM users").fetchall()
+
+
+def add_product(name: str, price_per_kg: float, description: str) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO products (name, price_per_kg, description) VALUES (?, ?, ?)",
+            (name, price_per_kg, description),
+        )
+        return int(cur.lastrowid)
+
+
+def update_product(product_id: int, name: str, price_per_kg: float, description: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE products
+            SET name = ?, price_per_kg = ?, description = ?
+            WHERE id = ?
+            """,
+            (name, price_per_kg, description, product_id),
+        )
+
+
+def update_product_name(product_id: int, name: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE products SET name = ? WHERE id = ?",
+            (name, product_id),
+        )
+
+
+def update_product_price(product_id: int, price_per_kg: float) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE products SET price_per_kg = ? WHERE id = ?",
+            (price_per_kg, product_id),
+        )
+
+
+def update_product_description(product_id: int, description: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE products SET description = ? WHERE id = ?",
+            (description, product_id),
+        )
+
+
+def set_product_photos(product_id: int, file_ids: list[str]) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM product_photos WHERE product_id = ?", (product_id,))
+        for position, file_id in enumerate(file_ids):
+            conn.execute(
+                """
+                INSERT INTO product_photos (product_id, file_id, position)
+                VALUES (?, ?, ?)
+                """,
+                (product_id, file_id, position),
+            )
+
+
+def list_products() -> Iterable[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
+
+
+def get_product(product_id: int) -> Optional[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM products WHERE id = ?", (product_id,)
+        ).fetchone()
+
+
+def get_product_photos(product_id: int) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT file_id FROM product_photos WHERE product_id = ? ORDER BY position",
+            (product_id,),
+        ).fetchall()
+    return [row["file_id"] for row in rows]
+
+
+def add_order(user_id: int, product_id: int, quantity: str, address: str) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO orders (user_id, product_id, quantity, address, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, product_id, quantity, address, now),
+        )
+
+
+def count_users() -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()
+    return int(row["total"])
+
+
+def count_active_users(days: int) -> int:
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM users WHERE last_active >= ?",
+            (cutoff,),
+        ).fetchone()
+    return int(row["total"])
