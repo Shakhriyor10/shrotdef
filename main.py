@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
@@ -156,6 +157,34 @@ def format_order_datetime(value: str) -> str:
 def format_order_person(first_name: Optional[str], last_name: Optional[str]) -> str:
     parts = [part for part in [first_name, last_name] if part]
     return " ".join(parts) if parts else "Noma'lum"
+
+
+def format_price(value: Optional[float]) -> str:
+    if value is None:
+        return "Kiritilmagan"
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def parse_quantity_to_kg(value: str) -> Optional[float]:
+    cleaned = value.strip().lower()
+    match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", cleaned)
+    if not match:
+        return None
+    number = float(match.group(1).replace(",", "."))
+    if any(unit in cleaned for unit in ["tonna", "тонна", "t"]):
+        return number * 1000
+    return number
+
+
+def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
+    if price_per_kg is None:
+        return "Hisoblab bo'lmadi"
+    qty_kg = parse_quantity_to_kg(quantity)
+    if qty_kg is None:
+        return "Hisoblab bo'lmadi"
+    return format_price(qty_kg * price_per_kg)
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
@@ -327,7 +356,18 @@ async def main() -> None:
             await message.answer("Foydalanuvchi topilmadi.")
             await state.clear()
             return
-        db.add_order(user["id"], data["product_id"], data["quantity"], message.text)
+        product = db.get_product(data["product_id"])
+        if not product:
+            await message.answer("Mahsulot topilmadi.")
+            await state.clear()
+            return
+        db.add_order(
+            user["id"],
+            data["product_id"],
+            data["quantity"],
+            message.text,
+            product["price_per_kg"],
+        )
         await message.answer("Arizangiz qabul qilindi!", reply_markup=user_keyboard(is_admin(message.from_user.id)))
         await state.clear()
 
@@ -387,11 +427,14 @@ async def main() -> None:
         for order in orders:
             person = format_order_person(order["first_name"], order["last_name"])
             created_at = format_order_datetime(order["created_at"])
+            price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
             text = (
                 f"ID: {order['id']}\n"
                 f"Ism: {person}\n"
                 f"Mahsulot: {order['product_name']}\n"
                 f"Miqdor: {order['quantity']}\n"
+                f"Narx (1 kg, ariza vaqti): {format_price(price_per_kg)}\n"
+                f"Jami narx: {format_deal_price(order['quantity'], price_per_kg)}\n"
                 f"Telefon: {order['phone'] or 'Kiritilmagan'}\n"
                 f"Sana: {created_at}"
             )
@@ -430,10 +473,15 @@ async def main() -> None:
         for idx, order in enumerate(orders, start=offset + 1):
             person = format_order_person(order["first_name"], order["last_name"])
             created_at = format_order_datetime(order["created_at"])
+            price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
             lines.append(
                 "\n".join(
                     [
                         f"{idx}. {person}",
+                        f"Mahsulot: {order['product_name']}",
+                        f"Miqdor: {order['quantity']}",
+                        f"Narx (1 kg, ariza vaqti): {format_price(price_per_kg)}",
+                        f"Jami narx: {format_deal_price(order['quantity'], price_per_kg)}",
                         f"Telefon: {order['phone'] or 'Kiritilmagan'}",
                         f"Sana: {created_at}",
                     ]
