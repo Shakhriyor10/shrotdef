@@ -667,9 +667,13 @@ async def main() -> None:
     @dp.callback_query(F.data.startswith("user_orders:cancel_confirm:"))
     async def confirm_user_cancel_order(callback: types.CallbackQuery) -> None:
         order_id = int(callback.data.split(":", 3)[2])
+        user = db.get_user_by_tg_id(callback.from_user.id)
+        if not user:
+            await callback.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            return
         updated, status, canceled_by_role = db.cancel_order_by_user(
             order_id,
-            callback.from_user.id,
+            user["id"],
         )
         if not updated:
             if status == "closed":
