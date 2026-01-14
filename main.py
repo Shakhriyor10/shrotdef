@@ -626,7 +626,7 @@ async def main() -> None:
             lines.append(
                 "\n".join(
                     [
-                        f"{idx}. {format_order_message(order, include_id=False, include_address=False)}"
+                        f"{idx}. {format_order_message(order, include_id=False, include_address=True)}"
                     ]
                 )
             )
