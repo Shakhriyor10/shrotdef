@@ -563,7 +563,7 @@ async def main() -> None:
     async def add_product_description(message: types.Message, state: FSMContext) -> None:
         await state.update_data(description=message.text)
         await message.answer(
-            "Agar rasm bo'lsa yuboring (1-3 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
+            "Agar rasm bo'lsa yuboring (1 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
             reply_markup=add_product_photos_keyboard(),
         )
         await state.set_state(AddProductStates.photos)
@@ -579,7 +579,7 @@ async def main() -> None:
         if message.text and message.text.lower() == "tugatish":
             product_id = db.add_product(data["name"], data["price"], data["description"])
             if photos:
-                db.set_product_photos(product_id, photos[:3])
+                db.set_product_photos(product_id, photos[:1])
             await message.answer("Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
             await state.clear()
             return
@@ -589,18 +589,12 @@ async def main() -> None:
                 reply_markup=add_product_photos_keyboard(),
             )
             return
-        photos.append(message.photo[-1].file_id)
-        await state.update_data(photos=photos[:3])
-        if len(photos) >= 3:
-            product_id = db.add_product(data["name"], data["price"], data["description"])
-            db.set_product_photos(product_id, photos[:3])
-            await message.answer("Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
-            await state.clear()
-        else:
-            await message.answer(
-                "Yana rasm yuboring yoki 'Tugatish' tugmasini bosing.",
-                reply_markup=add_product_photos_keyboard(),
-            )
+        photos = [message.photo[-1].file_id]
+        await state.update_data(photos=photos[:1])
+        product_id = db.add_product(data["name"], data["price"], data["description"])
+        db.set_product_photos(product_id, photos[:1])
+        await message.answer("Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
+        await state.clear()
 
     @dp.message(F.text == "Mahsulotni tahrirlash")
     async def edit_product_list(message: types.Message) -> None:
@@ -630,7 +624,7 @@ async def main() -> None:
         await state.update_data(field=field)
         if field == "photos":
             await callback.message.answer(
-                "Yangi rasmlarni yuboring (1-3 dona). Tugatish: 'Tugatish' tugmasi.",
+                "Yangi rasmni yuboring (1 dona). Tugatish: 'Tugatish' tugmasi.",
                 reply_markup=add_product_photos_keyboard(),
             )
             await state.set_state(EditProductStates.photos)
@@ -662,12 +656,15 @@ async def main() -> None:
         data = await state.get_data()
         photos = data.get("photos", [])
         if message.text and message.text.lower() == "mahsulotlar":
+            db.set_product_photos(data["product_id"], [])
             await state.clear()
             await show_products(message)
             return
         if message.text and message.text.lower() == "tugatish":
             if photos:
-                db.set_product_photos(data["product_id"], photos[:3])
+                db.set_product_photos(data["product_id"], photos[:1])
+            else:
+                db.set_product_photos(data["product_id"], [])
             await message.answer("Rasmlar yangilandi.", reply_markup=user_keyboard(True))
             await state.clear()
             return
@@ -677,17 +674,11 @@ async def main() -> None:
                 reply_markup=add_product_photos_keyboard(),
             )
             return
-        photos.append(message.photo[-1].file_id)
-        await state.update_data(photos=photos[:3])
-        if len(photos) >= 3:
-            db.set_product_photos(data["product_id"], photos[:3])
-            await message.answer("Rasmlar yangilandi.", reply_markup=user_keyboard(True))
-            await state.clear()
-        else:
-            await message.answer(
-                "Yana rasm yuboring yoki 'Tugatish' tugmasini bosing.",
-                reply_markup=add_product_photos_keyboard(),
-            )
+        photos = [message.photo[-1].file_id]
+        await state.update_data(photos=photos[:1])
+        db.set_product_photos(data["product_id"], photos[:1])
+        await message.answer("Rasmlar yangilandi.", reply_markup=user_keyboard(True))
+        await state.clear()
 
     @dp.message(F.text == "Рассылка")
     async def broadcast_start(message: types.Message, state: FSMContext) -> None:
