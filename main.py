@@ -796,12 +796,18 @@ async def main() -> None:
         search_text = message.text or ""
         match = re.search(r"\d+", search_text)
         if not match:
-            await message.answer("⚠️ Iltimos, buyurtma ID raqamini kiriting.")
+            await message.answer(
+                "⚠️ Iltimos, buyurtma ID raqamini kiriting.",
+                reply_markup=cancel_keyboard(),
+            )
             return
         order_id = int(match.group())
         order = db.get_order_with_details(order_id)
         if not order:
-            await message.answer("🔎 Buyurtma topilmadi.")
+            await message.answer(
+                "🔎 Buyurtma topilmadi.",
+                reply_markup=cancel_keyboard(),
+            )
             return
         keyboard = order_action_keyboard(order_id) if order["status"] == "open" else None
         await message.answer(
@@ -809,7 +815,10 @@ async def main() -> None:
             reply_markup=keyboard,
             parse_mode="HTML",
         )
-        await state.clear()
+        await message.answer(
+            "🔁 Yana bir ID kiriting yoki Bekor qilish tugmasini bosing.",
+            reply_markup=cancel_keyboard(),
+        )
 
     @dp.callback_query(F.data.startswith("orders:close:"))
     async def close_order_status(callback: types.CallbackQuery) -> None:
