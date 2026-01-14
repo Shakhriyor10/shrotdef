@@ -23,14 +23,29 @@ import db
 
 ADMIN_LIST = {960217500, 7746040125}
 
-INFO_TEXT = """Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
-Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
+INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
+⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
 """
-CONTACT_TEXT = """Aloqa uchun:
-Telefon: +998 90 000 00 00
-Manzil: Toshkent shahar
+CONTACT_TEXT = """📞 Aloqa uchun:
+☎️ Telefon: +998 90 000 00 00
+📍 Manzil: Toshkent shahar
 """
-NEWS_TEXT = """Yangiliklar hozircha mavjud emas."""
+NEWS_TEXT = """📰 Yangiliklar hozircha mavjud emas."""
+
+BTN_PRODUCTS = "🛍 Mahsulotlar"
+BTN_MY_ORDERS = "📦 Mening buyurtmalarim"
+BTN_INFO = "ℹ️ Ma'lumot"
+BTN_CONTACT = "📞 Aloqa"
+BTN_NEWS = "📰 Yangiliklar"
+BTN_STATS = "📊 Statistika"
+BTN_ORDERS_LIST = "🧾 Buyurtmalar ro'yxati"
+BTN_BROADCAST = "📣 Xabar tarqatish"
+BTN_ADD_PRODUCT = "➕ Mahsulot qo'shish"
+BTN_EDIT_PRODUCT = "✏️ Mahsulotni tahrirlash"
+BTN_SEND_PHONE = "📲 Telefon raqamni yuborish"
+BTN_FINISH = "✅ Tugatish"
+BTN_CANCEL = "❌ Bekor qilish"
+BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
 
 
 class OrderStates(StatesGroup):
@@ -77,24 +92,21 @@ class ActivityMiddleware(BaseMiddleware):
 
 def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="Mahsulotlar")],
-        [KeyboardButton(text="Mening buyurtmalarim")],
-        [KeyboardButton(text="Ma'lumot"), KeyboardButton(text="Aloqa")],
-        [KeyboardButton(text="Yangiliklar")],
+        [KeyboardButton(text=BTN_PRODUCTS)],
+        [KeyboardButton(text=BTN_INFO), KeyboardButton(text=BTN_CONTACT)],
+        [KeyboardButton(text=BTN_NEWS)],
     ]
+    if not is_admin:
+        rows.insert(1, [KeyboardButton(text=BTN_MY_ORDERS)])
     if is_admin:
-        rows.append([KeyboardButton(text="Statistika"), KeyboardButton(text="Buyurtmalar ro'yxati")])
-        rows.append([KeyboardButton(text="Xabar tarqatish")])
-        rows.append([
-            KeyboardButton(text="Mahsulot qo'shish"),
-            KeyboardButton(text="Mahsulotni tahrirlash"),
-        ])
+        rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
+        rows.append([KeyboardButton(text=BTN_BROADCAST)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
 def contact_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Telefon raqamni yuborish", request_contact=True)]],
+        keyboard=[[KeyboardButton(text=BTN_SEND_PHONE, request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
@@ -103,8 +115,8 @@ def contact_keyboard() -> ReplyKeyboardMarkup:
 def add_product_photos_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Tugatish"), KeyboardButton(text="Mahsulotlar")],
-            [KeyboardButton(text="Bekor qilish")],
+            [KeyboardButton(text=BTN_FINISH), KeyboardButton(text=BTN_PRODUCTS)],
+            [KeyboardButton(text=BTN_CANCEL)],
         ],
         resize_keyboard=True,
     )
@@ -112,7 +124,7 @@ def add_product_photos_keyboard() -> ReplyKeyboardMarkup:
 
 def cancel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Bekor qilish")]],
+        keyboard=[[KeyboardButton(text=BTN_CANCEL)]],
         resize_keyboard=True,
     )
 
@@ -120,51 +132,51 @@ def cancel_keyboard() -> ReplyKeyboardMarkup:
 def order_address_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Lokatsiyani yuborish", request_location=True)],
-            [KeyboardButton(text="Bekor qilish")],
+            [KeyboardButton(text=BTN_SEND_LOCATION, request_location=True)],
+            [KeyboardButton(text=BTN_CANCEL)],
         ],
         resize_keyboard=True,
     )
 
 
 def is_cancel_message(message: types.Message) -> bool:
-    return bool(message.text and message.text.strip().lower() == "bekor qilish")
+    return bool(message.text and message.text.strip() == BTN_CANCEL)
 
 
 def format_user_contact(first_name: Optional[str], last_name: Optional[str], phone: Optional[str]) -> str:
     name_parts = [part for part in [first_name, last_name] if part]
     full_name = " ".join(name_parts) if name_parts else "Noma'lum foydalanuvchi"
-    phone_display = phone or "Telefon yo'q"
+    phone_display = phone or "📞 Telefon yo'q"
     return f"{full_name} ({phone_display})"
 
 
 async def cancel_admin_action(message: types.Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Amal bekor qilindi.", reply_markup=user_keyboard(True))
+    await message.answer("❌ Amal bekor qilindi.", reply_markup=user_keyboard(True))
 
 
 def product_inline_keyboard(product_id: int, admin: bool) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="Sotib olish uchun ariza yuborish", callback_data=f"order:{product_id}")]
+        [InlineKeyboardButton(text="🛒 Sotib olish uchun ariza yuborish", callback_data=f"order:{product_id}")]
     ]
     if admin:
-        buttons.append([InlineKeyboardButton(text="Tahrirlash", callback_data=f"edit:{product_id}")])
+        buttons.append([InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit:{product_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def edit_inline_keyboard(product_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Tahrirlash", callback_data=f"edit:{product_id}")]]
+        inline_keyboard=[[InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit:{product_id}")]]
     )
 
 
 def edit_fields_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Nomi", callback_data="field:name")],
-            [InlineKeyboardButton(text="Narxi", callback_data="field:price")],
-            [InlineKeyboardButton(text="Tavsif", callback_data="field:description")],
-            [InlineKeyboardButton(text="Rasmlar", callback_data="field:photos")],
+            [InlineKeyboardButton(text="📝 Nomi", callback_data="field:name")],
+            [InlineKeyboardButton(text="💰 Narxi", callback_data="field:price")],
+            [InlineKeyboardButton(text="🗒 Tavsif", callback_data="field:description")],
+            [InlineKeyboardButton(text="🖼 Rasmlar", callback_data="field:photos")],
         ]
     )
 
@@ -173,10 +185,10 @@ def orders_status_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Yopilmagan statuslar", callback_data="orders:open"),
-                InlineKeyboardButton(text="Yopilgan statuslar", callback_data="orders:closed:0"),
+                InlineKeyboardButton(text="🟢 Yopilmagan statuslar", callback_data="orders:open"),
+                InlineKeyboardButton(text="✅ Yopilgan statuslar", callback_data="orders:closed:0"),
             ],
-            [InlineKeyboardButton(text="Bekor qilingan statuslar", callback_data="orders:canceled:0")],
+            [InlineKeyboardButton(text="❌ Bekor qilingan statuslar", callback_data="orders:canceled:0")],
         ]
     )
 
@@ -184,8 +196,8 @@ def orders_status_keyboard() -> InlineKeyboardMarkup:
 def order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Qabul qilish va yopish", callback_data=f"orders:close:{order_id}")],
-            [InlineKeyboardButton(text="Bekor qilish va yopish", callback_data=f"orders:cancel:{order_id}")],
+            [InlineKeyboardButton(text="✅ Qabul qilish va yopish", callback_data=f"orders:close:{order_id}")],
+            [InlineKeyboardButton(text="❌ Bekor qilish va yopish", callback_data=f"orders:cancel:{order_id}")],
         ]
     )
 
@@ -193,8 +205,8 @@ def order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
 def order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Ha, bekor qilish", callback_data=f"orders:cancel_confirm:{order_id}")],
-            [InlineKeyboardButton(text="Yo'q", callback_data=f"orders:cancel_keep:{order_id}")],
+            [InlineKeyboardButton(text="✅ Ha, bekor qilish", callback_data=f"orders:cancel_confirm:{order_id}")],
+            [InlineKeyboardButton(text="↩️ Yo'q", callback_data=f"orders:cancel_keep:{order_id}")],
         ]
     )
 
@@ -202,7 +214,7 @@ def order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
 def user_order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Buyurtmani bekor qilish", callback_data=f"user_orders:cancel:{order_id}")]
+            [InlineKeyboardButton(text="❌ Buyurtmani bekor qilish", callback_data=f"user_orders:cancel:{order_id}")]
         ]
     )
 
@@ -210,8 +222,8 @@ def user_order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
 def user_order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Ha, bekor qilish", callback_data=f"user_orders:cancel_confirm:{order_id}")],
-            [InlineKeyboardButton(text="Yo'q", callback_data=f"user_orders:cancel_keep:{order_id}")],
+            [InlineKeyboardButton(text="✅ Ha, bekor qilish", callback_data=f"user_orders:cancel_confirm:{order_id}")],
+            [InlineKeyboardButton(text="↩️ Yo'q", callback_data=f"user_orders:cancel_keep:{order_id}")],
         ]
     )
 
@@ -228,36 +240,36 @@ def format_order_message(order, include_id: bool = True, include_address: bool =
     price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
     lines = []
     if include_id:
-        lines.append(f"ID: {escape(str(order['id']))}")
+        lines.append(f"🆔 ID: {escape(str(order['id']))}")
     lines.extend(
         [
-            f"Ism: {person}",
-            f"Mahsulot: {escape(order['product_name'])}",
-            f"Miqdor: {escape(order['quantity'])}",
-            f"Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
-            f"Telefon: {escape(order['phone'] or 'Kiritilmagan')}",
+            f"👤 Ism: {person}",
+            f"📦 Mahsulot: {escape(order['product_name'])}",
+            f"⚖️ Miqdor: {escape(order['quantity'])}",
+            f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+            f"📞 Telefon: {escape(order['phone'] or 'Kiritilmagan')}",
         ]
     )
     if include_address:
-        lines.append(f"Manzil: {escape(order['address'])}")
+        lines.append(f"📍 Manzil: {escape(order['address'])}")
         location_link = format_location_link(order["latitude"], order["longitude"])
         if location_link:
-            lines.append(f"Lokatsiya: <a href=\"{escape(location_link)}\">Manzilga utish</a>")
-    lines.append(f"Sana: {created_at}")
+            lines.append(f"🗺 Lokatsiya: <a href=\"{escape(location_link)}\">Manzilga utish</a>")
+    lines.append(f"📅 Sana: {created_at}")
     return "\n".join(lines)
 
 
 def format_status_label(status: str, canceled_by_role: Optional[str]) -> str:
     if status == "open":
-        return "Ochiq"
+        return "🟢 Ochiq"
     if status == "closed":
-        return "Qabul qilingan va yopilgan"
+        return "✅ Qabul qilingan va yopilgan"
     if status == "canceled" and canceled_by_role == "user":
-        return "Bekor qilish va yopish"
+        return "❌ Bekor qilish va yopish"
     if status == "canceled" and canceled_by_role == "admin":
-        return "Admin tomonidan bekor qilingan"
+        return "⚠️ Admin tomonidan bekor qilingan"
     if status == "canceled":
-        return "Bekor qilingan"
+        return "❌ Bekor qilingan"
     return status
 
 
@@ -266,13 +278,13 @@ def format_user_order_message(order) -> str:
     price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
     status_label = format_status_label(order["status"], order["canceled_by_role"])
     lines = [
-        f"ID: {escape(str(order['id']))}",
-        f"Mahsulot: {escape(order['product_name'])}",
-        f"Miqdor: {escape(order['quantity'])}",
-        f"Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
-        f"Manzil: {escape(order['address'])}",
-        f"Holati: {escape(status_label)}",
-        f"Sana: {created_at}",
+        f"🆔 ID: {escape(str(order['id']))}",
+        f"📦 Mahsulot: {escape(order['product_name'])}",
+        f"⚖️ Miqdor: {escape(order['quantity'])}",
+        f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+        f"📍 Manzil: {escape(order['address'])}",
+        f"📌 Holati: {escape(status_label)}",
+        f"📅 Sana: {created_at}",
     ]
     return "\n".join(lines)
 
@@ -281,7 +293,7 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
     order = db.get_order_with_details(order_id)
     if not order:
         return
-    text = "Yangi ariza:\n" + format_order_message(order)
+    text = "🆕 Yangi ariza:\n" + format_order_message(order)
     for admin_id in ADMIN_LIST:
         try:
             await bot.send_message(
@@ -303,12 +315,12 @@ def format_order_datetime(value: str) -> str:
 
 def format_order_person(first_name: Optional[str], last_name: Optional[str]) -> str:
     parts = [part for part in [first_name, last_name] if part]
-    return " ".join(parts) if parts else "Noma'lum"
+    return " ".join(parts) if parts else "👤 Noma'lum"
 
 
 def format_price(value: Optional[float]) -> str:
     if value is None:
-        return "Kiritilmagan"
+        return "⚠️ Kiritilmagan"
     if abs(value - round(value)) < 1e-9:
         return str(int(round(value)))
     return f"{value:.2f}".rstrip("0").rstrip(".")
@@ -327,19 +339,19 @@ def parse_quantity_to_kg(value: str) -> Optional[float]:
 
 def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
     if price_per_kg is None:
-        return "Hisoblab bo'lmadi"
+        return "⚠️ Hisoblab bo'lmadi"
     qty_kg = parse_quantity_to_kg(quantity)
     if qty_kg is None:
-        return "Hisoblab bo'lmadi"
+        return "⚠️ Hisoblab bo'lmadi"
     return format_price(qty_kg * price_per_kg)
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
     photos = db.get_product_photos(product["id"])
     caption = (
-        f"Mahsulot: {product['name']}\n"
-        f"Narxi (1 kg): {product['price_per_kg']}\n"
-        f"Tavsif: {product['description'] or 'Kiritilmagan'}"
+        f"📦 Mahsulot: {product['name']}\n"
+        f"💰 Narxi (1 kg): {product['price_per_kg']}\n"
+        f"🗒 Tavsif: {product['description'] or 'Kiritilmagan'}"
     )
     if photos:
         await bot.send_photo(
@@ -368,7 +380,7 @@ async def ensure_user_registered(message: types.Message) -> bool:
     user = db.get_user_by_tg_id(message.from_user.id)
     if not user or not user["phone"]:
         await message.answer(
-            "Iltimos, botdan foydalanish uchun telefon raqamingizni yuboring.",
+            "📲 Iltimos, botdan foydalanish uchun telefon raqamingizni yuboring.",
             reply_markup=contact_keyboard(),
         )
         return False
@@ -387,7 +399,7 @@ async def handle_media_group_timeout(user_id: int, bot: Bot, state: FSMContext) 
         media_items=buffer_entry["media_items"],
     )
     await state.update_data(broadcast_payload=payload)
-    await bot.send_message(user_id, "Tarqatmani tasdiqlaysizmi? (Ha/Yo'q)")
+    await bot.send_message(user_id, "📣 Tarqatmani tasdiqlaysizmi? (Ha/Yo'q)")
     await state.set_state(BroadcastStates.confirm)
 
 
@@ -456,39 +468,39 @@ async def main() -> None:
         user = db.get_user_by_tg_id(message.from_user.id)
         if user and user["phone"]:
             await message.answer(
-                "Xush kelibsiz!", reply_markup=user_keyboard(is_admin(message.from_user.id))
+                "👋 Xush kelibsiz!", reply_markup=user_keyboard(is_admin(message.from_user.id))
             )
         else:
             await message.answer(
-                "Assalomu alaykum! Botdan foydalanish uchun telefon raqamingizni yuboring.",
+                "👋 Assalomu alaykum! Botdan foydalanish uchun telefon raqamingizni yuboring.",
                 reply_markup=contact_keyboard(),
             )
 
     @dp.message(F.contact)
     async def handle_contact(message: types.Message) -> None:
         if not message.contact or message.contact.user_id != message.from_user.id:
-            await message.answer("Iltimos, o'zingizning raqamingizni yuboring.")
+            await message.answer("⚠️ Iltimos, o'zingizning raqamingizni yuboring.")
             return
         db.update_user_phone(message.from_user.id, message.contact.phone_number)
         await message.answer(
-            "Rahmat! Endi botdan foydalanishingiz mumkin.",
+            "✅ Rahmat! Endi botdan foydalanishingiz mumkin.",
             reply_markup=user_keyboard(is_admin(message.from_user.id)),
         )
 
-    @dp.message(F.text == "Mahsulotlar")
+    @dp.message(F.text == BTN_PRODUCTS)
     async def show_products(message: types.Message) -> None:
         if not await ensure_user_registered(message):
             return
         admin = is_admin(message.from_user.id)
         products = db.list_products()
         if not products:
-            await message.answer("Hozircha mahsulotlar mavjud emas.")
+            await message.answer("📭 Hozircha mahsulotlar mavjud emas.")
             if admin:
                 await message.answer(
-                    "Mahsulot qo'shish uchun pastdagi tugmani bosing.",
+                    "➕ Mahsulot qo'shish uchun pastdagi tugmani bosing.",
                     reply_markup=InlineKeyboardMarkup(
                         inline_keyboard=[
-                            [InlineKeyboardButton(text="Mahsulot qo'shish", callback_data="add_product")]
+                            [InlineKeyboardButton(text=BTN_ADD_PRODUCT, callback_data="add_product")]
                         ]
                     ),
                 )
@@ -497,10 +509,10 @@ async def main() -> None:
             await send_product(message.chat.id, product, bot, admin)
         if admin:
             await message.answer(
-                "Mahsulot qo'shish uchun pastdagi tugmani bosing.",
+                "➕ Mahsulot qo'shish uchun pastdagi tugmani bosing.",
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [InlineKeyboardButton(text="Mahsulot qo'shish", callback_data="add_product")]
+                        [InlineKeyboardButton(text=BTN_ADD_PRODUCT, callback_data="add_product")]
                     ]
                 ),
             )
@@ -510,7 +522,7 @@ async def main() -> None:
         product_id = int(callback.data.split(":", 1)[1])
         await state.update_data(product_id=product_id)
         await callback.message.answer(
-            "Necha kg yoki necha tonna kerak? (masalan: 150 kg yoki 2 tonna)",
+            "⚖️ Necha kg yoki necha tonna kerak? (masalan: 150 kg yoki 2 tonna)",
             reply_markup=cancel_keyboard(),
         )
         await state.set_state(OrderStates.quantity)
@@ -521,12 +533,12 @@ async def main() -> None:
         if is_cancel_message(message):
             await state.clear()
             await message.answer(
-                "Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
             )
             return
         await state.update_data(quantity=message.text)
         await message.answer(
-            "Manzilni kiriting yoki lokatsiyani yuboring.",
+            "📍 Manzilni kiriting yoki lokatsiyani yuboring.",
             reply_markup=order_address_keyboard(),
         )
         await state.set_state(OrderStates.address)
@@ -541,12 +553,12 @@ async def main() -> None:
         data = await state.get_data()
         user = db.get_user_by_tg_id(message.from_user.id)
         if not user:
-            await message.answer("Foydalanuvchi topilmadi.")
+            await message.answer("❌ Foydalanuvchi topilmadi.")
             await state.clear()
             return
         product = db.get_product(data["product_id"])
         if not product:
-            await message.answer("Mahsulot topilmadi.")
+            await message.answer("❌ Mahsulot topilmadi.")
             await state.clear()
             return
         order_id = db.add_order(
@@ -558,7 +570,9 @@ async def main() -> None:
             latitude=latitude,
             longitude=longitude,
         )
-        await message.answer("Arizangiz qabul qilindi!", reply_markup=user_keyboard(is_admin(message.from_user.id)))
+        await message.answer(
+            "✅ Arizangiz qabul qilindi!", reply_markup=user_keyboard(is_admin(message.from_user.id))
+        )
         await notify_admins_new_order(message.bot, order_id)
         await state.clear()
 
@@ -567,16 +581,16 @@ async def main() -> None:
         if is_cancel_message(message):
             await state.clear()
             await message.answer(
-                "Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
             )
             return
         location = message.location
         if not location:
-            await message.answer("Lokatsiya topilmadi, qayta yuboring.")
+            await message.answer("⚠️ Lokatsiya topilmadi, qayta yuboring.")
             return
         address_text = await reverse_geocode(location.latitude, location.longitude)
         if not address_text:
-            address_text = "Lokatsiya yuborildi"
+            address_text = "📍 Lokatsiya yuborildi"
         await finalize_order(
             message,
             state,
@@ -590,30 +604,30 @@ async def main() -> None:
         if is_cancel_message(message):
             await state.clear()
             await message.answer(
-                "Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
             )
             return
         await finalize_order(message, state, message.text)
 
-    @dp.message(F.text == "Ma'lumot")
+    @dp.message(F.text == BTN_INFO)
     async def show_info(message: types.Message) -> None:
         if not await ensure_user_registered(message):
             return
         await message.answer(INFO_TEXT)
 
-    @dp.message(F.text == "Aloqa")
+    @dp.message(F.text == BTN_CONTACT)
     async def show_contact(message: types.Message) -> None:
         if not await ensure_user_registered(message):
             return
         await message.answer(CONTACT_TEXT)
 
-    @dp.message(F.text == "Yangiliklar")
+    @dp.message(F.text == BTN_NEWS)
     async def show_news(message: types.Message) -> None:
         if not await ensure_user_registered(message):
             return
         await message.answer(NEWS_TEXT)
 
-    @dp.message(F.text == "Statistika")
+    @dp.message(F.text == BTN_STATS)
     async def show_stats(message: types.Message) -> None:
         if not is_admin(message.from_user.id):
             return
@@ -632,16 +646,16 @@ async def main() -> None:
         purchasers_text = "\n".join(purchaser_lines) if purchaser_lines else "Hozircha ma'lumot yo'q."
         active_users_text = "\n".join(active_lines) if active_lines else "Hozircha ma'lumot yo'q."
         await message.answer(
-            "Statistika:\n"
-            f"Umumiy foydalanuvchilar: {total}\n"
-            f"So'nggi 30 kunda faol: {active}\n\n"
-            "Ko'p marta buyurtma bergan foydalanuvchilar:\n"
+            "📊 Statistika:\n"
+            f"👥 Umumiy foydalanuvchilar: {total}\n"
+            f"🔥 So'nggi 30 kunda faol: {active}\n\n"
+            "🏆 Ko'p marta buyurtma bergan foydalanuvchilar:\n"
             f"{purchasers_text}\n\n"
-            "Botdan ko'p foydalanadigan foydalanuvchilar:\n"
+            "🚀 Botdan ko'p foydalanadigan foydalanuvchilar:\n"
             f"{active_users_text}"
         )
 
-    @dp.message(F.text == "Buyurtmalar ro'yxati")
+    @dp.message(F.text == BTN_ORDERS_LIST)
     async def show_orders_summary(message: types.Message) -> None:
         if not is_admin(message.from_user.id):
             return
@@ -650,25 +664,25 @@ async def main() -> None:
         closed_count = db.count_orders_by_status("closed")
         canceled_count = db.count_orders_by_status("canceled")
         await message.answer(
-            "Zayavkalar bo'yicha ma'lumot:\n"
-            f"Umumiy: {total}\n"
-            f"Yopilgan: {closed_count}\n"
-            f"Bekor qilingan: {canceled_count}\n"
-            f"Ochiq: {open_count}",
+            "🧾 Zayavkalar bo'yicha ma'lumot:\n"
+            f"📦 Umumiy: {total}\n"
+            f"✅ Yopilgan: {closed_count}\n"
+            f"❌ Bekor qilingan: {canceled_count}\n"
+            f"🟢 Ochiq: {open_count}",
             reply_markup=orders_status_keyboard(),
         )
 
-    @dp.message(F.text == "Mening buyurtmalarim")
+    @dp.message(F.text == BTN_MY_ORDERS)
     async def show_user_orders(message: types.Message) -> None:
         if not await ensure_user_registered(message):
             return
         user = db.get_user_by_tg_id(message.from_user.id)
         if not user:
-            await message.answer("Foydalanuvchi topilmadi.")
+            await message.answer("❌ Foydalanuvchi topilmadi.")
             return
         orders = db.list_orders_for_user(user["id"])
         if not orders:
-            await message.answer("Sizda buyurtmalar mavjud emas.")
+            await message.answer("📭 Sizda buyurtmalar mavjud emas.")
             return
         for order in orders:
             keyboard = None
@@ -687,14 +701,14 @@ async def main() -> None:
             await callback.message.edit_reply_markup(
                 reply_markup=user_order_cancel_confirm_keyboard(order_id)
             )
-        await callback.answer("Buyurtmani bekor qilishni tasdiqlang")
+        await callback.answer("❗ Buyurtmani bekor qilishni tasdiqlang")
 
     @dp.callback_query(F.data.startswith("user_orders:cancel_confirm:"))
     async def confirm_user_cancel_order(callback: types.CallbackQuery) -> None:
         order_id = int(callback.data.split(":", 3)[2])
         user = db.get_user_by_tg_id(callback.from_user.id)
         if not user:
-            await callback.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            await callback.answer("❌ Foydalanuvchi topilmadi.", show_alert=True)
             return
         updated, status, canceled_by_role = db.cancel_order_by_user(
             order_id,
@@ -703,22 +717,22 @@ async def main() -> None:
         if not updated:
             if status == "closed":
                 await callback.answer(
-                    "Buyurtma allaqachon qabul qilingan.", show_alert=True
+                    "✅ Buyurtma allaqachon qabul qilingan.", show_alert=True
                 )
             elif status == "canceled" and canceled_by_role == "user":
                 await callback.answer(
-                    "Buyurtma allaqachon bekor qilingan.", show_alert=True
+                    "❌ Buyurtma allaqachon bekor qilingan.", show_alert=True
                 )
             elif status == "canceled":
                 await callback.answer(
-                    "Buyurtma allaqachon bekor qilingan.", show_alert=True
+                    "❌ Buyurtma allaqachon bekor qilingan.", show_alert=True
                 )
             else:
-                await callback.answer("Buyurtma topilmadi.", show_alert=True)
+                await callback.answer("🔎 Buyurtma topilmadi.", show_alert=True)
             return
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer("Buyurtma bekor qilindi")
+        await callback.answer("❌ Buyurtma bekor qilindi")
 
     @dp.callback_query(F.data.startswith("user_orders:cancel_keep:"))
     async def cancel_user_cancel_order(callback: types.CallbackQuery) -> None:
@@ -727,7 +741,7 @@ async def main() -> None:
             await callback.message.edit_reply_markup(
                 reply_markup=user_order_action_keyboard(order_id)
             )
-        await callback.answer("Bekor qilinmadi")
+        await callback.answer("↩️ Bekor qilinmadi")
 
     @dp.callback_query(F.data == "orders:open")
     async def show_open_orders(callback: types.CallbackQuery) -> None:
@@ -736,7 +750,7 @@ async def main() -> None:
             return
         orders = db.list_orders_with_details(status="open")
         if not orders:
-            await callback.message.answer("Hozircha ochiq zayavkalar yo'q.")
+            await callback.message.answer("📭 Hozircha ochiq zayavkalar yo'q.")
             await callback.answer()
             return
         for order in orders:
@@ -759,18 +773,18 @@ async def main() -> None:
             if status == "canceled":
                 if canceled_by_role == "user":
                     await callback.answer(
-                        "Mijoz buyurtmani bekor qilgan.", show_alert=True
+                        "❌ Mijoz buyurtmani bekor qilgan.", show_alert=True
                     )
                 else:
-                    await callback.answer("Status allaqachon bekor qilingan.", show_alert=True)
+                    await callback.answer("❌ Status allaqachon bekor qilingan.", show_alert=True)
             elif closed_by and closed_by != callback.from_user.id:
-                await callback.answer("Boshqa admin allaqachon statusni yopgan.", show_alert=True)
+                await callback.answer("⚠️ Boshqa admin allaqachon statusni yopgan.", show_alert=True)
             else:
-                await callback.answer("Status allaqachon yopilgan.", show_alert=True)
+                await callback.answer("✅ Status allaqachon yopilgan.", show_alert=True)
             return
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer("Zayavka qabul qilindi va yopildi")
+        await callback.answer("✅ Zayavka qabul qilindi va yopildi")
 
     @dp.callback_query(F.data.startswith("orders:cancel:"))
     async def prompt_cancel_order(callback: types.CallbackQuery) -> None:
@@ -782,7 +796,7 @@ async def main() -> None:
             await callback.message.edit_reply_markup(
                 reply_markup=order_cancel_confirm_keyboard(order_id)
             )
-        await callback.answer("Zayavkani bekor qilishni tasdiqlang", show_alert=False)
+        await callback.answer("❗ Zayavkani bekor qilishni tasdiqlang", show_alert=False)
 
     @dp.callback_query(F.data.startswith("orders:cancel_confirm:"))
     async def cancel_order_status(callback: types.CallbackQuery) -> None:
@@ -795,17 +809,17 @@ async def main() -> None:
         )
         if not updated:
             if status == "closed":
-                await callback.answer("Status allaqachon yopilgan.", show_alert=True)
+                await callback.answer("✅ Status allaqachon yopilgan.", show_alert=True)
             elif status == "canceled" and canceled_by_role == "user":
-                await callback.answer("Mijoz buyurtmani bekor qilgan.", show_alert=True)
+                await callback.answer("❌ Mijoz buyurtmani bekor qilgan.", show_alert=True)
             elif closed_by and closed_by != callback.from_user.id:
-                await callback.answer("Boshqa admin allaqachon bekor qilgan.", show_alert=True)
+                await callback.answer("⚠️ Boshqa admin allaqachon bekor qilgan.", show_alert=True)
             else:
-                await callback.answer("Status allaqachon bekor qilingan.", show_alert=True)
+                await callback.answer("❌ Status allaqachon bekor qilingan.", show_alert=True)
             return
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer("Zayavka bekor qilindi")
+        await callback.answer("❌ Zayavka bekor qilindi")
 
     @dp.callback_query(F.data.startswith("orders:cancel_keep:"))
     async def cancel_order_keep(callback: types.CallbackQuery) -> None:
@@ -815,7 +829,7 @@ async def main() -> None:
         order_id = int(callback.data.split(":", 3)[2])
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=order_action_keyboard(order_id))
-        await callback.answer("Bekor qilinmadi")
+        await callback.answer("↩️ Bekor qilinmadi")
 
     @dp.callback_query(F.data.startswith("orders:closed:"))
     async def show_closed_orders(callback: types.CallbackQuery) -> None:
@@ -827,9 +841,9 @@ async def main() -> None:
         orders = db.list_orders_with_details(status="closed", limit=limit, offset=offset)
         if not orders:
             if offset == 0:
-                await callback.message.answer("Yopilgan zayavkalar yo'q.")
+                await callback.message.answer("📭 Yopilgan zayavkalar yo'q.")
             else:
-                await callback.message.answer("Boshqa yopilgan zayavkalar yo'q.")
+                await callback.message.answer("📭 Boshqa yopilgan zayavkalar yo'q.")
             await callback.answer()
             return
         lines = []
@@ -849,7 +863,7 @@ async def main() -> None:
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="Yana 10 ta", callback_data=f"orders:closed:{offset + limit}"
+                            text="➡️ Yana 10 ta", callback_data=f"orders:closed:{offset + limit}"
                         )
                     ]
                 ]
@@ -867,9 +881,9 @@ async def main() -> None:
         orders = db.list_orders_with_details(status="canceled", limit=limit, offset=offset)
         if not orders:
             if offset == 0:
-                await callback.message.answer("Bekor qilingan zayavkalar yo'q.")
+                await callback.message.answer("📭 Bekor qilingan zayavkalar yo'q.")
             else:
-                await callback.message.answer("Boshqa bekor qilingan zayavkalar yo'q.")
+                await callback.message.answer("📭 Boshqa bekor qilingan zayavkalar yo'q.")
             await callback.answer()
             return
         lines = []
@@ -889,7 +903,7 @@ async def main() -> None:
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="Yana 10 ta", callback_data=f"orders:canceled:{offset + limit}"
+                            text="➡️ Yana 10 ta", callback_data=f"orders:canceled:{offset + limit}"
                         )
                     ]
                 ]
@@ -897,11 +911,11 @@ async def main() -> None:
         await callback.message.answer(message_text, reply_markup=keyboard, parse_mode="HTML")
         await callback.answer()
 
-    @dp.message(F.text == "Mahsulot qo'shish")
+    @dp.message(F.text == BTN_ADD_PRODUCT)
     async def add_product_start(message: types.Message, state: FSMContext) -> None:
         if not is_admin(message.from_user.id):
             return
-        await message.answer("Mahsulot nomini kiriting.", reply_markup=cancel_keyboard())
+        await message.answer("📝 Mahsulot nomini kiriting.", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.name)
 
     @dp.callback_query(F.data == "add_product")
@@ -909,7 +923,7 @@ async def main() -> None:
         if not is_admin(callback.from_user.id):
             await callback.answer()
             return
-        await callback.message.answer("Mahsulot nomini kiriting.", reply_markup=cancel_keyboard())
+        await callback.message.answer("📝 Mahsulot nomini kiriting.", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.name)
         await callback.answer()
 
@@ -919,7 +933,7 @@ async def main() -> None:
             await cancel_admin_action(message, state)
             return
         await state.update_data(name=message.text)
-        await message.answer("Narxini kiriting (1 kg uchun).", reply_markup=cancel_keyboard())
+        await message.answer("💰 Narxini kiriting (1 kg uchun).", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.price)
 
     @dp.message(AddProductStates.price)
@@ -929,10 +943,10 @@ async def main() -> None:
             return
         price = parse_price(message.text)
         if price is None:
-            await message.answer("Narxni to'g'ri kiriting (masalan: 12000).")
+            await message.answer("⚠️ Narxni to'g'ri kiriting (masalan: 12000).")
             return
         await state.update_data(price=price)
-        await message.answer("Tavsifini kiriting.", reply_markup=cancel_keyboard())
+        await message.answer("🗒 Tavsifini kiriting.", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.description)
 
     @dp.message(AddProductStates.description)
@@ -942,7 +956,7 @@ async def main() -> None:
             return
         await state.update_data(description=message.text)
         await message.answer(
-            "Agar rasm bo'lsa yuboring (1 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
+            "🖼 Agar rasm bo'lsa yuboring (1 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
             reply_markup=add_product_photos_keyboard(),
         )
         await state.set_state(AddProductStates.photos)
@@ -954,20 +968,20 @@ async def main() -> None:
         if is_cancel_message(message):
             await cancel_admin_action(message, state)
             return
-        if message.text and message.text.lower() == "mahsulotlar":
+        if message.text and message.text.strip() == BTN_PRODUCTS:
             await state.clear()
             await show_products(message)
             return
-        if message.text and message.text.lower() == "tugatish":
+        if message.text and message.text.strip() == BTN_FINISH:
             product_id = db.add_product(data["name"], data["price"], data["description"])
             if photos:
                 db.set_product_photos(product_id, photos[:1])
-            await message.answer("Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
+            await message.answer("✅ Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
             await state.clear()
             return
         if not message.photo:
             await message.answer(
-                "Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                "📷 Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
                 reply_markup=add_product_photos_keyboard(),
             )
             return
@@ -975,16 +989,16 @@ async def main() -> None:
         await state.update_data(photos=photos[:1])
         product_id = db.add_product(data["name"], data["price"], data["description"])
         db.set_product_photos(product_id, photos[:1])
-        await message.answer("Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
+        await message.answer("✅ Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
         await state.clear()
 
-    @dp.message(F.text == "Mahsulotni tahrirlash")
+    @dp.message(F.text == BTN_EDIT_PRODUCT)
     async def edit_product_list(message: types.Message) -> None:
         if not is_admin(message.from_user.id):
             return
         products = db.list_products()
         if not products:
-            await message.answer("Mahsulotlar mavjud emas.")
+            await message.answer("📭 Mahsulotlar mavjud emas.")
             return
         for product in products:
             await message.answer(
@@ -996,9 +1010,9 @@ async def main() -> None:
     async def edit_product_start(callback: types.CallbackQuery, state: FSMContext) -> None:
         product_id = int(callback.data.split(":", 1)[1])
         await state.update_data(product_id=product_id)
-        await callback.message.answer("Nimani tahrirlaysiz?", reply_markup=edit_fields_keyboard())
+        await callback.message.answer("✏️ Nimani tahrirlaysiz?", reply_markup=edit_fields_keyboard())
         await callback.message.answer(
-            "Agar bekor qilmoqchi bo'lsangiz, Bekor qilish tugmasini bosing.",
+            "❌ Agar bekor qilmoqchi bo'lsangiz, Bekor qilish tugmasini bosing.",
             reply_markup=cancel_keyboard(),
         )
         await state.set_state(EditProductStates.field)
@@ -1015,12 +1029,12 @@ async def main() -> None:
         await state.update_data(field=field)
         if field == "photos":
             await callback.message.answer(
-                "Yangi rasmni yuboring (1 dona). Tugatish: 'Tugatish' tugmasi.",
+                "🖼 Yangi rasmni yuboring (1 dona). Tugatish: 'Tugatish' tugmasi.",
                 reply_markup=add_product_photos_keyboard(),
             )
             await state.set_state(EditProductStates.photos)
         else:
-            await callback.message.answer("Yangi qiymatni kiriting.", reply_markup=cancel_keyboard())
+            await callback.message.answer("📝 Yangi qiymatni kiriting.", reply_markup=cancel_keyboard())
             await state.set_state(EditProductStates.value)
         await callback.answer()
 
@@ -1037,12 +1051,12 @@ async def main() -> None:
         elif field == "price":
             price = parse_price(message.text)
             if price is None:
-                await message.answer("Narxni to'g'ri kiriting.")
+                await message.answer("⚠️ Narxni to'g'ri kiriting.")
                 return
             db.update_product_price(product_id, price)
         elif field == "description":
             db.update_product_description(product_id, message.text)
-        await message.answer("Mahsulot yangilandi.", reply_markup=user_keyboard(True))
+        await message.answer("✅ Mahsulot yangilandi.", reply_markup=user_keyboard(True))
         await state.clear()
 
     @dp.message(EditProductStates.photos)
@@ -1052,36 +1066,36 @@ async def main() -> None:
         if is_cancel_message(message):
             await cancel_admin_action(message, state)
             return
-        if message.text and message.text.lower() == "mahsulotlar":
+        if message.text and message.text.strip() == BTN_PRODUCTS:
             db.set_product_photos(data["product_id"], [])
             await state.clear()
             await show_products(message)
             return
-        if message.text and message.text.lower() == "tugatish":
+        if message.text and message.text.strip() == BTN_FINISH:
             if photos:
                 db.set_product_photos(data["product_id"], photos[:1])
             else:
                 db.set_product_photos(data["product_id"], [])
-            await message.answer("Rasmlar yangilandi.", reply_markup=user_keyboard(True))
+            await message.answer("✅ Rasmlar yangilandi.", reply_markup=user_keyboard(True))
             await state.clear()
             return
         if not message.photo:
             await message.answer(
-                "Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                "📷 Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
                 reply_markup=add_product_photos_keyboard(),
             )
             return
         photos = [message.photo[-1].file_id]
         await state.update_data(photos=photos[:1])
         db.set_product_photos(data["product_id"], photos[:1])
-        await message.answer("Rasmlar yangilandi.", reply_markup=user_keyboard(True))
+        await message.answer("✅ Rasmlar yangilandi.", reply_markup=user_keyboard(True))
         await state.clear()
 
-    @dp.message(F.text == "Xabar tarqatish")
+    @dp.message(F.text == BTN_BROADCAST)
     async def broadcast_start(message: types.Message, state: FSMContext) -> None:
         if not is_admin(message.from_user.id):
             return
-        await message.answer("Tarqatma uchun matn, foto yoki video yuboring.")
+        await message.answer("📣 Tarqatma uchun matn, foto yoki video yuboring.")
         await state.set_state(BroadcastStates.content)
 
     @dp.message(BroadcastStates.content)
@@ -1123,17 +1137,17 @@ async def main() -> None:
             payload = BroadcastPayload(kind="text", text=message.text)
 
         await state.update_data(broadcast_payload=payload)
-        await message.answer("Tarqatmani tasdiqlaysizmi? (Ha/Yo'q)")
+        await message.answer("📣 Tarqatmani tasdiqlaysizmi? (Ha/Yo'q)")
         await state.set_state(BroadcastStates.confirm)
 
     @dp.message(BroadcastStates.confirm)
     async def broadcast_confirm(message: types.Message, state: FSMContext) -> None:
         text = message.text.lower() if message.text else ""
         if text not in {"ha", "yo'q", "yoq"}:
-            await message.answer("Iltimos, Ha yoki Yo'q deb javob bering.")
+            await message.answer("⚠️ Iltimos, Ha yoki Yo'q deb javob bering.")
             return
         if text in {"yo'q", "yoq"}:
-            await message.answer("Tarqatma bekor qilindi.")
+            await message.answer("❌ Tarqatma bekor qilindi.")
             await state.clear()
             return
 
@@ -1166,7 +1180,7 @@ async def main() -> None:
             except Exception:
                 failed += 1
         await message.answer(
-            f"Tarqatma yakunlandi. Muvaffaqiyatli: {success}, Xatolar: {failed}."
+            f"✅ Tarqatma yakunlandi. Muvaffaqiyatli: {success}, Xatolar: {failed}."
         )
         await state.clear()
 
@@ -1174,7 +1188,7 @@ async def main() -> None:
     async def fallback(message: types.Message) -> None:
         if not await ensure_user_registered(message):
             return
-        await message.answer("Iltimos, menyudan tanlang.")
+        await message.answer("👉 Iltimos, menyudan tanlang.")
 
     await dp.start_polling(bot)
 
