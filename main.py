@@ -698,17 +698,26 @@ async def main() -> None:
             )
             await state.clear()
             return
+        success = 0
         for group_id in GROUP_LIST:
             try:
                 await message.bot.send_message(group_id, format_support_user_details(message.from_user))
-                forwarded = await message.bot.forward_message(
+                forwarded = await message.bot.copy_message(
                     chat_id=group_id,
                     from_chat_id=message.chat.id,
                     message_id=message.message_id,
                 )
                 support_reply_map[(group_id, forwarded.message_id)] = message.from_user.id
+                success += 1
             except Exception:
                 continue
+        if not success:
+            await message.answer(
+                "⚠️ Xabarni yuborib bo'lmadi. Iltimos, keyinroq urinib ko'ring.",
+                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            )
+            await state.clear()
+            return
         await message.answer(
             "✅ Xabaringiz yuborildi. Javobni shu yerda kuting.",
             reply_markup=user_keyboard(is_admin(message.from_user.id)),
