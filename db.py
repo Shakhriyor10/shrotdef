@@ -57,6 +57,7 @@ def init_db() -> None:
                 address TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'open',
+                order_price_per_kg REAL,
                 closed_at TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
@@ -70,10 +71,23 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass
         try:
+            conn.execute("ALTER TABLE orders ADD COLUMN order_price_per_kg REAL")
+        except sqlite3.OperationalError:
+            pass
+        try:
             conn.execute("ALTER TABLE orders ADD COLUMN closed_at TEXT")
         except sqlite3.OperationalError:
             pass
         conn.execute("UPDATE orders SET status = 'open' WHERE status IS NULL")
+        conn.execute(
+            """
+            UPDATE orders
+            SET order_price_per_kg = (
+                SELECT price_per_kg FROM products WHERE products.id = orders.product_id
+            )
+            WHERE order_price_per_kg IS NULL
+            """
+        )
 
 
 def add_or_update_user(tg_id: int, first_name: str, last_name: Optional[str]) -> None:
@@ -209,15 +223,29 @@ def get_product_photos(product_id: int) -> list[str]:
     return [row["file_id"] for row in rows]
 
 
-def add_order(user_id: int, product_id: int, quantity: str, address: str) -> None:
+def add_order(
+    user_id: int,
+    product_id: int,
+    quantity: str,
+    address: str,
+    order_price_per_kg: float,
+) -> None:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO orders (user_id, product_id, quantity, address, created_at, status)
-            VALUES (?, ?, ?, ?, ?, 'open')
+            INSERT INTO orders (
+                user_id,
+                product_id,
+                quantity,
+                address,
+                created_at,
+                status,
+                order_price_per_kg
+            )
+            VALUES (?, ?, ?, ?, ?, 'open', ?)
             """,
-            (user_id, product_id, quantity, address, now),
+            (user_id, product_id, quantity, address, now, order_price_per_kg),
         )
 
 
@@ -257,10 +285,12 @@ def list_orders_with_details(
             orders.address,
             orders.created_at,
             orders.status,
+            orders.order_price_per_kg,
             users.first_name,
             users.last_name,
             users.phone,
-            products.name AS product_name
+            products.name AS product_name,
+            products.price_per_kg AS product_price_per_kg
         FROM orders
         JOIN users ON orders.user_id = users.id
         JOIN products ON orders.product_id = products.id
