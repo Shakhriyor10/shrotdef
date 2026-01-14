@@ -22,7 +22,8 @@ def init_db() -> None:
                 last_name TEXT,
                 phone TEXT,
                 created_at TEXT NOT NULL,
-                last_active TEXT NOT NULL
+                last_active TEXT NOT NULL,
+                activity_count INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -96,6 +97,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE orders ADD COLUMN longitude REAL")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN activity_count INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
         conn.execute("UPDATE orders SET status = 'open' WHERE status IS NULL")
         conn.execute(
             """
@@ -155,7 +162,12 @@ def update_last_active(tg_id: int) -> None:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
         conn.execute(
-            "UPDATE users SET last_active = ? WHERE tg_id = ?",
+            """
+            UPDATE users
+            SET last_active = ?,
+                activity_count = COALESCE(activity_count, 0) + 1
+            WHERE tg_id = ?
+            """,
             (now, tg_id),
         )
 
@@ -468,3 +480,37 @@ def count_active_users(days: int) -> int:
             (cutoff,),
         ).fetchone()
     return int(row["total"])
+
+
+def list_top_purchasers(limit: int = 5) -> Iterable[sqlite3.Row]:
+    query = """
+        SELECT
+            users.first_name,
+            users.last_name,
+            users.phone,
+            COUNT(orders.id) AS order_count
+        FROM orders
+        JOIN users ON orders.user_id = users.id
+        WHERE orders.status = 'closed'
+        GROUP BY users.id
+        ORDER BY order_count DESC, users.id DESC
+        LIMIT ?
+    """
+    with get_connection() as conn:
+        return conn.execute(query, (limit,)).fetchall()
+
+
+def list_top_active_users(limit: int = 5) -> Iterable[sqlite3.Row]:
+    query = """
+        SELECT
+            first_name,
+            last_name,
+            phone,
+            activity_count,
+            last_active
+        FROM users
+        ORDER BY activity_count DESC, last_active DESC
+        LIMIT ?
+    """
+    with get_connection() as conn:
+        return conn.execute(query, (limit,)).fetchall()
