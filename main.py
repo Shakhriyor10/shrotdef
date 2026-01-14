@@ -97,9 +97,28 @@ def contact_keyboard() -> ReplyKeyboardMarkup:
 
 def add_product_photos_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Tugatish"), KeyboardButton(text="Mahsulotlar")]],
+        keyboard=[
+            [KeyboardButton(text="Tugatish"), KeyboardButton(text="Mahsulotlar")],
+            [KeyboardButton(text="Bekor qilish")],
+        ],
         resize_keyboard=True,
     )
+
+
+def cancel_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Bekor qilish")]],
+        resize_keyboard=True,
+    )
+
+
+def is_cancel_message(message: types.Message) -> bool:
+    return bool(message.text and message.text.strip().lower() == "bekor qilish")
+
+
+async def cancel_admin_action(message: types.Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Amal bekor qilindi.", reply_markup=user_keyboard(True))
 
 
 def product_inline_keyboard(product_id: int, admin: bool) -> InlineKeyboardMarkup:
@@ -531,7 +550,7 @@ async def main() -> None:
     async def add_product_start(message: types.Message, state: FSMContext) -> None:
         if not is_admin(message.from_user.id):
             return
-        await message.answer("Mahsulot nomini kiriting.")
+        await message.answer("Mahsulot nomini kiriting.", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.name)
 
     @dp.callback_query(F.data == "add_product")
@@ -539,28 +558,37 @@ async def main() -> None:
         if not is_admin(callback.from_user.id):
             await callback.answer()
             return
-        await callback.message.answer("Mahsulot nomini kiriting.")
+        await callback.message.answer("Mahsulot nomini kiriting.", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.name)
         await callback.answer()
 
     @dp.message(AddProductStates.name)
     async def add_product_name(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
         await state.update_data(name=message.text)
-        await message.answer("Narxini kiriting (1 kg uchun).")
+        await message.answer("Narxini kiriting (1 kg uchun).", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.price)
 
     @dp.message(AddProductStates.price)
     async def add_product_price(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
         price = parse_price(message.text)
         if price is None:
             await message.answer("Narxni to'g'ri kiriting (masalan: 12000).")
             return
         await state.update_data(price=price)
-        await message.answer("Tavsifini kiriting.")
+        await message.answer("Tavsifini kiriting.", reply_markup=cancel_keyboard())
         await state.set_state(AddProductStates.description)
 
     @dp.message(AddProductStates.description)
     async def add_product_description(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
         await state.update_data(description=message.text)
         await message.answer(
             "Agar rasm bo'lsa yuboring (1 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
@@ -572,6 +600,9 @@ async def main() -> None:
     async def add_product_photos(message: types.Message, state: FSMContext) -> None:
         data = await state.get_data()
         photos = data.get("photos", [])
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
         if message.text and message.text.lower() == "mahsulotlar":
             await state.clear()
             await show_products(message)
@@ -615,8 +646,17 @@ async def main() -> None:
         product_id = int(callback.data.split(":", 1)[1])
         await state.update_data(product_id=product_id)
         await callback.message.answer("Nimani tahrirlaysiz?", reply_markup=edit_fields_keyboard())
+        await callback.message.answer(
+            "Agar bekor qilmoqchi bo'lsangiz, Bekor qilish tugmasini bosing.",
+            reply_markup=cancel_keyboard(),
+        )
         await state.set_state(EditProductStates.field)
         await callback.answer()
+
+    @dp.message(EditProductStates.field)
+    async def edit_product_cancel(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
 
     @dp.callback_query(EditProductStates.field, F.data.startswith("field:"))
     async def edit_product_field(callback: types.CallbackQuery, state: FSMContext) -> None:
@@ -629,13 +669,16 @@ async def main() -> None:
             )
             await state.set_state(EditProductStates.photos)
         else:
-            await callback.message.answer("Yangi qiymatni kiriting.")
+            await callback.message.answer("Yangi qiymatni kiriting.", reply_markup=cancel_keyboard())
             await state.set_state(EditProductStates.value)
         await callback.answer()
 
     @dp.message(EditProductStates.value)
     async def edit_product_value(message: types.Message, state: FSMContext) -> None:
         data = await state.get_data()
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
         product_id = data["product_id"]
         field = data["field"]
         if field == "name":
@@ -655,6 +698,9 @@ async def main() -> None:
     async def edit_product_photos(message: types.Message, state: FSMContext) -> None:
         data = await state.get_data()
         photos = data.get("photos", [])
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
         if message.text and message.text.lower() == "mahsulotlar":
             db.set_product_photos(data["product_id"], [])
             await state.clear()
