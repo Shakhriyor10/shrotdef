@@ -82,8 +82,8 @@ def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
         [KeyboardButton(text="Yangiliklar")],
     ]
     if is_admin:
-        rows.append([KeyboardButton(text="Statistika"), KeyboardButton(text="Список заявки")])
-        rows.append([KeyboardButton(text="Рассылка")])
+        rows.append([KeyboardButton(text="Statistika"), KeyboardButton(text="Buyurtmalar ro'yxati")])
+        rows.append([KeyboardButton(text="Xabar tarqatish")])
         rows.append([
             KeyboardButton(text="Mahsulot qo'shish"),
             KeyboardButton(text="Mahsulotni tahrirlash"),
@@ -165,10 +165,10 @@ def orders_status_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Не закрытые статусы", callback_data="orders:open"),
-                InlineKeyboardButton(text="Закрытые статусы", callback_data="orders:closed:0"),
+                InlineKeyboardButton(text="Yopilmagan statuslar", callback_data="orders:open"),
+                InlineKeyboardButton(text="Yopilgan statuslar", callback_data="orders:closed:0"),
             ],
-            [InlineKeyboardButton(text="Отмененные статусы", callback_data="orders:canceled:0")],
+            [InlineKeyboardButton(text="Bekor qilingan statuslar", callback_data="orders:canceled:0")],
         ]
     )
 
@@ -176,8 +176,8 @@ def orders_status_keyboard() -> InlineKeyboardMarkup:
 def order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Принять и закрыть", callback_data=f"orders:close:{order_id}")],
-            [InlineKeyboardButton(text="Отменить и закрыть", callback_data=f"orders:cancel:{order_id}")],
+            [InlineKeyboardButton(text="Qabul qilish va yopish", callback_data=f"orders:close:{order_id}")],
+            [InlineKeyboardButton(text="Bekor qilish va yopish", callback_data=f"orders:cancel:{order_id}")],
         ]
     )
 
@@ -185,8 +185,8 @@ def order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
 def order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Да, отменить", callback_data=f"orders:cancel_confirm:{order_id}")],
-            [InlineKeyboardButton(text="Нет", callback_data=f"orders:cancel_keep:{order_id}")],
+            [InlineKeyboardButton(text="Ha, bekor qilish", callback_data=f"orders:cancel_confirm:{order_id}")],
+            [InlineKeyboardButton(text="Yo'q", callback_data=f"orders:cancel_keep:{order_id}")],
         ]
     )
 
@@ -265,7 +265,7 @@ def parse_quantity_to_kg(value: str) -> Optional[float]:
     if not match:
         return None
     number = float(match.group(1).replace(",", "."))
-    if any(unit in cleaned for unit in ["tonna", "тонна", "t"]):
+    if any(unit in cleaned for unit in ["tonna", "t"]):
         return number * 1000
     return number
 
@@ -332,7 +332,7 @@ async def handle_media_group_timeout(user_id: int, bot: Bot, state: FSMContext) 
         media_items=buffer_entry["media_items"],
     )
     await state.update_data(broadcast_payload=payload)
-    await bot.send_message(user_id, "Рассылkani tasdiqlaysizmi? (Ha/Yo'q)")
+    await bot.send_message(user_id, "Tarqatmani tasdiqlaysizmi? (Ha/Yo'q)")
     await state.set_state(BroadcastStates.confirm)
 
 
@@ -568,7 +568,7 @@ async def main() -> None:
             f"Umumiy foydalanuvchilar: {total}\nSo'nggi 30 kunda faol: {active}"
         )
 
-    @dp.message(F.text == "Список заявки")
+    @dp.message(F.text == "Buyurtmalar ro'yxati")
     async def show_orders_summary(message: types.Message) -> None:
         if not is_admin(message.from_user.id):
             return
@@ -926,11 +926,11 @@ async def main() -> None:
         await message.answer("Rasmlar yangilandi.", reply_markup=user_keyboard(True))
         await state.clear()
 
-    @dp.message(F.text == "Рассылка")
+    @dp.message(F.text == "Xabar tarqatish")
     async def broadcast_start(message: types.Message, state: FSMContext) -> None:
         if not is_admin(message.from_user.id):
             return
-        await message.answer("Рассылка uchun matn, foto yoki video yuboring.")
+        await message.answer("Tarqatma uchun matn, foto yoki video yuboring.")
         await state.set_state(BroadcastStates.content)
 
     @dp.message(BroadcastStates.content)
@@ -972,17 +972,17 @@ async def main() -> None:
             payload = BroadcastPayload(kind="text", text=message.text)
 
         await state.update_data(broadcast_payload=payload)
-        await message.answer("Рассылkani tasdiqlaysizmi? (Ha/Yo'q)")
+        await message.answer("Tarqatmani tasdiqlaysizmi? (Ha/Yo'q)")
         await state.set_state(BroadcastStates.confirm)
 
     @dp.message(BroadcastStates.confirm)
     async def broadcast_confirm(message: types.Message, state: FSMContext) -> None:
         text = message.text.lower() if message.text else ""
-        if text not in {"ha", "yo'q", "yoq", "нет", "да"}:
+        if text not in {"ha", "yo'q", "yoq"}:
             await message.answer("Iltimos, Ha yoki Yo'q deb javob bering.")
             return
-        if text in {"yo'q", "yoq", "нет"}:
-            await message.answer("Рассылка bekor qilindi.")
+        if text in {"yo'q", "yoq"}:
+            await message.answer("Tarqatma bekor qilindi.")
             await state.clear()
             return
 
@@ -1015,7 +1015,7 @@ async def main() -> None:
             except Exception:
                 failed += 1
         await message.answer(
-            f"Рассылка yakunlandi. Muvaffaqiyatli: {success}, Xatolar: {failed}."
+            f"Tarqatma yakunlandi. Muvaffaqiyatli: {success}, Xatolar: {failed}."
         )
         await state.clear()
 
