@@ -5,6 +5,7 @@ import os
 import re
 import urllib.parse
 import urllib.request
+from html import escape
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
@@ -179,26 +180,33 @@ def order_close_keyboard(order_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def format_location_link(latitude: Optional[float], longitude: Optional[float]) -> Optional[str]:
+    if latitude is None or longitude is None:
+        return None
+    return f"https://www.google.com/maps?q={latitude},{longitude}"
+
+
 def format_order_message(order, include_id: bool = True, include_address: bool = True) -> str:
-    person = format_order_person(order["first_name"], order["last_name"])
-    created_at = format_order_datetime(order["created_at"])
+    person = escape(format_order_person(order["first_name"], order["last_name"]))
+    created_at = escape(format_order_datetime(order["created_at"]))
     price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
     lines = []
     if include_id:
-        lines.append(f"ID: {order['id']}")
+        lines.append(f"ID: {escape(str(order['id']))}")
     lines.extend(
         [
             f"Ism: {person}",
-            f"Mahsulot: {order['product_name']}",
-            f"Miqdor: {order['quantity']}",
-            f"Narx (1 kg, ariza vaqti): {format_price(price_per_kg)}",
-            f"Telefon: {order['phone'] or 'Kiritilmagan'}",
+            f"Mahsulot: {escape(order['product_name'])}",
+            f"Miqdor: {escape(order['quantity'])}",
+            f"Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+            f"Telefon: {escape(order['phone'] or 'Kiritilmagan')}",
         ]
     )
     if include_address:
-        lines.append(f"Manzil: {order['address']}")
-        if order["latitude"] is not None and order["longitude"] is not None:
-            lines.append(f"Lokatsiya: {order['latitude']}, {order['longitude']}")
+        lines.append(f"Manzil: {escape(order['address'])}")
+        location_link = format_location_link(order["latitude"], order["longitude"])
+        if location_link:
+            lines.append(f"Lokatsiya: <a href=\"{escape(location_link)}\">Manzilga utish</a>")
     lines.append(f"Sana: {created_at}")
     return "\n".join(lines)
 
@@ -210,14 +218,11 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
     text = "Yangi ariza:\n" + format_order_message(order)
     for admin_id in ADMIN_LIST:
         try:
-            if order["latitude"] is not None and order["longitude"] is not None:
-                await bot.send_location(
-                    admin_id, latitude=order["latitude"], longitude=order["longitude"]
-                )
             await bot.send_message(
                 admin_id,
                 text,
                 reply_markup=order_close_keyboard(order_id),
+                parse_mode="HTML",
             )
         except Exception:
             continue
@@ -580,7 +585,7 @@ async def main() -> None:
         for order in orders:
             text = format_order_message(order)
             await callback.message.answer(
-                text, reply_markup=order_close_keyboard(order["id"])
+                text, reply_markup=order_close_keyboard(order["id"]), parse_mode="HTML"
             )
         await callback.answer()
 
@@ -638,7 +643,7 @@ async def main() -> None:
                     ]
                 ]
             )
-        await callback.message.answer(message_text, reply_markup=keyboard)
+        await callback.message.answer(message_text, reply_markup=keyboard, parse_mode="HTML")
         await callback.answer()
 
     @dp.message(F.text == "Mahsulot qo'shish")
