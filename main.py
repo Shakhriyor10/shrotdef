@@ -78,6 +78,7 @@ class ActivityMiddleware(BaseMiddleware):
 def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="Mahsulotlar")],
+        [KeyboardButton(text="Mening buyurtmalarim")],
         [KeyboardButton(text="Ma'lumot"), KeyboardButton(text="Aloqa")],
         [KeyboardButton(text="Yangiliklar")],
     ]
@@ -191,6 +192,23 @@ def order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def user_order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Buyurtmani bekor qilish", callback_data=f"user_orders:cancel:{order_id}")]
+        ]
+    )
+
+
+def user_order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Ha, bekor qilish", callback_data=f"user_orders:cancel_confirm:{order_id}")],
+            [InlineKeyboardButton(text="Yo'q", callback_data=f"user_orders:cancel_keep:{order_id}")],
+        ]
+    )
+
+
 def format_location_link(latitude: Optional[float], longitude: Optional[float]) -> Optional[str]:
     if latitude is None or longitude is None:
         return None
@@ -219,6 +237,36 @@ def format_order_message(order, include_id: bool = True, include_address: bool =
         if location_link:
             lines.append(f"Lokatsiya: <a href=\"{escape(location_link)}\">Manzilga utish</a>")
     lines.append(f"Sana: {created_at}")
+    return "\n".join(lines)
+
+
+def format_status_label(status: str, canceled_by_role: Optional[str]) -> str:
+    if status == "open":
+        return "Ochiq"
+    if status == "closed":
+        return "Qabul qilingan va yopilgan"
+    if status == "canceled" and canceled_by_role == "user":
+        return "Bekor qilish va yopish"
+    if status == "canceled" and canceled_by_role == "admin":
+        return "Admin tomonidan bekor qilingan"
+    if status == "canceled":
+        return "Bekor qilingan"
+    return status
+
+
+def format_user_order_message(order) -> str:
+    created_at = escape(format_order_datetime(order["created_at"]))
+    price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
+    status_label = format_status_label(order["status"], order["canceled_by_role"])
+    lines = [
+        f"ID: {escape(str(order['id']))}",
+        f"Mahsulot: {escape(order['product_name'])}",
+        f"Miqdor: {escape(order['quantity'])}",
+        f"Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+        f"Manzil: {escape(order['address'])}",
+        f"Holati: {escape(status_label)}",
+        f"Sana: {created_at}",
+    ]
     return "\n".join(lines)
 
 
@@ -585,6 +633,73 @@ async def main() -> None:
             reply_markup=orders_status_keyboard(),
         )
 
+    @dp.message(F.text == "Mening buyurtmalarim")
+    async def show_user_orders(message: types.Message) -> None:
+        if not await ensure_user_registered(message):
+            return
+        user = db.get_user_by_tg_id(message.from_user.id)
+        if not user:
+            await message.answer("Foydalanuvchi topilmadi.")
+            return
+        orders = db.list_orders_for_user(user["id"])
+        if not orders:
+            await message.answer("Sizda buyurtmalar mavjud emas.")
+            return
+        for order in orders:
+            keyboard = None
+            if order["status"] == "open":
+                keyboard = user_order_action_keyboard(order["id"])
+            await message.answer(
+                format_user_order_message(order),
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+    @dp.callback_query(F.data.startswith("user_orders:cancel:"))
+    async def prompt_user_cancel_order(callback: types.CallbackQuery) -> None:
+        order_id = int(callback.data.split(":", 2)[2])
+        if callback.message:
+            await callback.message.edit_reply_markup(
+                reply_markup=user_order_cancel_confirm_keyboard(order_id)
+            )
+        await callback.answer("Buyurtmani bekor qilishni tasdiqlang")
+
+    @dp.callback_query(F.data.startswith("user_orders:cancel_confirm:"))
+    async def confirm_user_cancel_order(callback: types.CallbackQuery) -> None:
+        order_id = int(callback.data.split(":", 3)[2])
+        updated, status, canceled_by_role = db.cancel_order_by_user(
+            order_id,
+            callback.from_user.id,
+        )
+        if not updated:
+            if status == "closed":
+                await callback.answer(
+                    "Buyurtma allaqachon qabul qilingan.", show_alert=True
+                )
+            elif status == "canceled" and canceled_by_role == "user":
+                await callback.answer(
+                    "Buyurtma allaqachon bekor qilingan.", show_alert=True
+                )
+            elif status == "canceled":
+                await callback.answer(
+                    "Buyurtma allaqachon bekor qilingan.", show_alert=True
+                )
+            else:
+                await callback.answer("Buyurtma topilmadi.", show_alert=True)
+            return
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.answer("Buyurtma bekor qilindi")
+
+    @dp.callback_query(F.data.startswith("user_orders:cancel_keep:"))
+    async def cancel_user_cancel_order(callback: types.CallbackQuery) -> None:
+        order_id = int(callback.data.split(":", 3)[2])
+        if callback.message:
+            await callback.message.edit_reply_markup(
+                reply_markup=user_order_action_keyboard(order_id)
+            )
+        await callback.answer("Bekor qilinmadi")
+
     @dp.callback_query(F.data == "orders:open")
     async def show_open_orders(callback: types.CallbackQuery) -> None:
         if not is_admin(callback.from_user.id):
@@ -608,12 +723,17 @@ async def main() -> None:
             await callback.answer()
             return
         order_id = int(callback.data.split(":", 2)[2])
-        updated, status, closed_by = db.update_order_status(
+        updated, status, closed_by, canceled_by_role = db.update_order_status(
             order_id, "closed", callback.from_user.id
         )
         if not updated:
             if status == "canceled":
-                await callback.answer("Status allaqachon bekor qilingan.", show_alert=True)
+                if canceled_by_role == "user":
+                    await callback.answer(
+                        "Mijoz buyurtmani bekor qilgan.", show_alert=True
+                    )
+                else:
+                    await callback.answer("Status allaqachon bekor qilingan.", show_alert=True)
             elif closed_by and closed_by != callback.from_user.id:
                 await callback.answer("Boshqa admin allaqachon statusni yopgan.", show_alert=True)
             else:
@@ -641,12 +761,14 @@ async def main() -> None:
             await callback.answer()
             return
         order_id = int(callback.data.split(":", 3)[2])
-        updated, status, closed_by = db.update_order_status(
+        updated, status, closed_by, canceled_by_role = db.update_order_status(
             order_id, "canceled", callback.from_user.id
         )
         if not updated:
             if status == "closed":
                 await callback.answer("Status allaqachon yopilgan.", show_alert=True)
+            elif status == "canceled" and canceled_by_role == "user":
+                await callback.answer("Mijoz buyurtmani bekor qilgan.", show_alert=True)
             elif closed_by and closed_by != callback.from_user.id:
                 await callback.answer("Boshqa admin allaqachon bekor qilgan.", show_alert=True)
             else:
