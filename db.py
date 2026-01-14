@@ -482,7 +482,7 @@ def count_active_users(days: int) -> int:
     return int(row["total"])
 
 
-def list_top_purchasers(limit: int = 5) -> Iterable[sqlite3.Row]:
+def list_top_purchasers(limit: int = 100) -> Iterable[sqlite3.Row]:
     query = """
         SELECT
             users.first_name,
@@ -500,7 +500,7 @@ def list_top_purchasers(limit: int = 5) -> Iterable[sqlite3.Row]:
         return conn.execute(query, (limit,)).fetchall()
 
 
-def list_top_active_users(limit: int = 5) -> Iterable[sqlite3.Row]:
+def list_top_active_users(limit: int = 100) -> Iterable[sqlite3.Row]:
     query = """
         SELECT
             first_name,
