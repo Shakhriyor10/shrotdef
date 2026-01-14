@@ -71,6 +71,10 @@ class BroadcastStates(StatesGroup):
     confirm = State()
 
 
+class OrderSearchStates(StatesGroup):
+    order_id = State()
+
+
 @dataclass
 class BroadcastPayload:
     kind: str
@@ -189,6 +193,7 @@ def orders_status_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="✅ Yopilgan statuslar", callback_data="orders:closed:0"),
             ],
             [InlineKeyboardButton(text="❌ Bekor qilingan statuslar", callback_data="orders:canceled:0")],
+            [InlineKeyboardButton(text="🔎 ID bo'yicha qidirish", callback_data="orders:search")],
         ]
     )
 
@@ -271,6 +276,16 @@ def format_status_label(status: str, canceled_by_role: Optional[str]) -> str:
     if status == "canceled":
         return "❌ Bekor qilingan"
     return status
+
+
+def format_admin_order_details(order) -> str:
+    status_label = format_status_label(order["status"], order["canceled_by_role"])
+    return "\n".join(
+        [
+            format_order_message(order, include_id=True, include_address=True),
+            f"📌 Holati: {escape(status_label)}",
+        ]
+    )
 
 
 def format_user_order_message(order) -> str:
@@ -760,6 +775,51 @@ async def main() -> None:
             )
         await callback.answer()
 
+    @dp.callback_query(F.data == "orders:search")
+    async def prompt_order_search(callback: types.CallbackQuery, state: FSMContext) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        await state.set_state(OrderSearchStates.order_id)
+        await callback.message.answer(
+            "🔎 Buyurtma ID raqamini kiriting.",
+            reply_markup=cancel_keyboard(),
+        )
+        await callback.answer()
+
+    @dp.message(OrderSearchStates.order_id)
+    async def handle_order_search(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await state.clear()
+            await message.answer("❌ Qidiruv bekor qilindi.", reply_markup=user_keyboard(True))
+            return
+        search_text = message.text or ""
+        match = re.search(r"\d+", search_text)
+        if not match:
+            await message.answer(
+                "⚠️ Iltimos, buyurtma ID raqamini kiriting.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        order_id = int(match.group())
+        order = db.get_order_with_details(order_id)
+        if not order:
+            await message.answer(
+                "🔎 Buyurtma topilmadi.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        keyboard = order_action_keyboard(order_id) if order["status"] == "open" else None
+        await message.answer(
+            format_admin_order_details(order),
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+        await message.answer(
+            "🔁 Yana bir ID kiriting yoki Bekor qilish tugmasini bosing.",
+            reply_markup=cancel_keyboard(),
+        )
+
     @dp.callback_query(F.data.startswith("orders:close:"))
     async def close_order_status(callback: types.CallbackQuery) -> None:
         if not is_admin(callback.from_user.id):
@@ -851,7 +911,7 @@ async def main() -> None:
             lines.append(
                 "\n".join(
                     [
-                        f"{idx}. {format_order_message(order, include_id=False, include_address=True)}"
+                        f"{idx}. {format_order_message(order, include_id=True, include_address=True)}"
                     ]
                 )
             )
@@ -891,7 +951,7 @@ async def main() -> None:
             lines.append(
                 "\n".join(
                     [
-                        f"{idx}. {format_order_message(order, include_id=False, include_address=True)}"
+                        f"{idx}. {format_order_message(order, include_id=True, include_address=True)}"
                     ]
                 )
             )
