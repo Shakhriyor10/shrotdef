@@ -55,6 +55,8 @@ def init_db() -> None:
                 product_id INTEGER NOT NULL,
                 quantity TEXT NOT NULL,
                 address TEXT NOT NULL,
+                latitude REAL,
+                longitude REAL,
                 created_at TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'open',
                 order_price_per_kg REAL,
@@ -80,6 +82,14 @@ def init_db() -> None:
             pass
         try:
             conn.execute("ALTER TABLE orders ADD COLUMN closed_by INTEGER")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE orders ADD COLUMN latitude REAL")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE orders ADD COLUMN longitude REAL")
         except sqlite3.OperationalError:
             pass
         conn.execute("UPDATE orders SET status = 'open' WHERE status IS NULL")
@@ -233,6 +243,8 @@ def add_order(
     quantity: str,
     address: str,
     order_price_per_kg: float,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
 ) -> int:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
@@ -243,13 +255,24 @@ def add_order(
                 product_id,
                 quantity,
                 address,
+                latitude,
+                longitude,
                 created_at,
                 status,
                 order_price_per_kg
             )
-            VALUES (?, ?, ?, ?, ?, 'open', ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
             """,
-            (user_id, product_id, quantity, address, now, order_price_per_kg),
+            (
+                user_id,
+                product_id,
+                quantity,
+                address,
+                latitude,
+                longitude,
+                now,
+                order_price_per_kg,
+            ),
         )
         return int(cur.lastrowid)
 
@@ -301,6 +324,8 @@ def list_orders_with_details(
             orders.id,
             orders.quantity,
             orders.address,
+            orders.latitude,
+            orders.longitude,
             orders.created_at,
             orders.status,
             orders.order_price_per_kg,
@@ -331,6 +356,8 @@ def get_order_with_details(order_id: int) -> Optional[sqlite3.Row]:
             orders.id,
             orders.quantity,
             orders.address,
+            orders.latitude,
+            orders.longitude,
             orders.created_at,
             orders.status,
             orders.order_price_per_kg,

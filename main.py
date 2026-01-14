@@ -1,7 +1,10 @@
 import asyncio
+import json
 import logging
 import os
 import re
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
@@ -112,6 +115,16 @@ def cancel_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def order_address_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Lokatsiyani yuborish", request_location=True)],
+            [KeyboardButton(text="Bekor qilish")],
+        ],
+        resize_keyboard=True,
+    )
+
+
 def is_cancel_message(message: types.Message) -> bool:
     return bool(message.text and message.text.strip().lower() == "bekor qilish")
 
@@ -184,6 +197,8 @@ def format_order_message(order, include_id: bool = True, include_address: bool =
     )
     if include_address:
         lines.append(f"Manzil: {order['address']}")
+        if order["latitude"] is not None and order["longitude"] is not None:
+            lines.append(f"Lokatsiya: {order['latitude']}, {order['longitude']}")
     lines.append(f"Sana: {created_at}")
     return "\n".join(lines)
 
@@ -195,6 +210,10 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
     text = "Yangi ariza:\n" + format_order_message(order)
     for admin_id in ADMIN_LIST:
         try:
+            if order["latitude"] is not None and order["longitude"] is not None:
+                await bot.send_location(
+                    admin_id, latitude=order["latitude"], longitude=order["longitude"]
+                )
             await bot.send_message(
                 admin_id,
                 text,
@@ -316,6 +335,32 @@ def safe_caption(message: types.Message) -> Optional[str]:
     return message.caption if message.caption else None
 
 
+async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
+    def _lookup() -> Optional[str]:
+        params = urllib.parse.urlencode(
+            {
+                "format": "json",
+                "lat": latitude,
+                "lon": longitude,
+                "zoom": 18,
+                "addressdetails": 1,
+            }
+        )
+        url = f"https://nominatim.openstreetmap.org/reverse?{params}"
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "shrotdef-bot/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return payload.get("display_name")
+
+    try:
+        return await asyncio.to_thread(_lookup)
+    except Exception:
+        return None
+
+
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
@@ -394,19 +439,34 @@ async def main() -> None:
         product_id = int(callback.data.split(":", 1)[1])
         await state.update_data(product_id=product_id)
         await callback.message.answer(
-            "Necha kg yoki necha tonna kerak? (masalan: 150 kg yoki 2 tonna)"
+            "Necha kg yoki necha tonna kerak? (masalan: 150 kg yoki 2 tonna)",
+            reply_markup=cancel_keyboard(),
         )
         await state.set_state(OrderStates.quantity)
         await callback.answer()
 
     @dp.message(OrderStates.quantity)
     async def order_quantity(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await state.clear()
+            await message.answer(
+                "Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+            )
+            return
         await state.update_data(quantity=message.text)
-        await message.answer("Yetkazib berish manzilini kiriting.")
+        await message.answer(
+            "Manzilni kiriting yoki lokatsiyani yuboring.",
+            reply_markup=order_address_keyboard(),
+        )
         await state.set_state(OrderStates.address)
 
-    @dp.message(OrderStates.address)
-    async def order_address(message: types.Message, state: FSMContext) -> None:
+    async def finalize_order(
+        message: types.Message,
+        state: FSMContext,
+        address: str,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+    ) -> None:
         data = await state.get_data()
         user = db.get_user_by_tg_id(message.from_user.id)
         if not user:
@@ -422,12 +482,47 @@ async def main() -> None:
             user["id"],
             data["product_id"],
             data["quantity"],
-            message.text,
+            address,
             product["price_per_kg"],
+            latitude=latitude,
+            longitude=longitude,
         )
         await message.answer("Arizangiz qabul qilindi!", reply_markup=user_keyboard(is_admin(message.from_user.id)))
         await notify_admins_new_order(message.bot, order_id)
         await state.clear()
+
+    @dp.message(OrderStates.address, F.location)
+    async def order_address_location(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await state.clear()
+            await message.answer(
+                "Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+            )
+            return
+        location = message.location
+        if not location:
+            await message.answer("Lokatsiya topilmadi, qayta yuboring.")
+            return
+        address_text = await reverse_geocode(location.latitude, location.longitude)
+        if not address_text:
+            address_text = "Lokatsiya yuborildi"
+        await finalize_order(
+            message,
+            state,
+            address_text,
+            latitude=location.latitude,
+            longitude=location.longitude,
+        )
+
+    @dp.message(OrderStates.address)
+    async def order_address(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await state.clear()
+            await message.answer(
+                "Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+            )
+            return
+        await finalize_order(message, state, message.text)
 
     @dp.message(F.text == "Ma'lumot")
     async def show_info(message: types.Message) -> None:
