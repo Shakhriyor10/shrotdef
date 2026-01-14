@@ -94,6 +94,13 @@ def contact_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def add_product_photos_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Tugatish"), KeyboardButton(text="Mahsulotlar")]],
+        resize_keyboard=True,
+    )
+
+
 def product_inline_keyboard(product_id: int, admin: bool) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="Sotib olish uchun ariza yuborish", callback_data=f"order:{product_id}")]
@@ -479,7 +486,8 @@ async def main() -> None:
     async def add_product_description(message: types.Message, state: FSMContext) -> None:
         await state.update_data(description=message.text)
         await message.answer(
-            "Agar rasm bo'lsa yuboring (1-3 dona). Tugatish uchun 'Tugatish' deb yozing."
+            "Agar rasm bo'lsa yuboring (1-3 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
+            reply_markup=add_product_photos_keyboard(),
         )
         await state.set_state(AddProductStates.photos)
 
@@ -487,6 +495,10 @@ async def main() -> None:
     async def add_product_photos(message: types.Message, state: FSMContext) -> None:
         data = await state.get_data()
         photos = data.get("photos", [])
+        if message.text and message.text.lower() == "mahsulotlar":
+            await state.clear()
+            await show_products(message)
+            return
         if message.text and message.text.lower() == "tugatish":
             product_id = db.add_product(data["name"], data["price"], data["description"])
             if photos:
@@ -495,7 +507,10 @@ async def main() -> None:
             await state.clear()
             return
         if not message.photo:
-            await message.answer("Iltimos, rasm yuboring yoki 'Tugatish' deb yozing.")
+            await message.answer(
+                "Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                reply_markup=add_product_photos_keyboard(),
+            )
             return
         photos.append(message.photo[-1].file_id)
         await state.update_data(photos=photos[:3])
@@ -505,7 +520,10 @@ async def main() -> None:
             await message.answer("Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
             await state.clear()
         else:
-            await message.answer("Yana rasm yuboring yoki 'Tugatish' deb yozing.")
+            await message.answer(
+                "Yana rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                reply_markup=add_product_photos_keyboard(),
+            )
 
     @dp.message(F.text == "Mahsulotni tahrirlash")
     async def edit_product_list(message: types.Message) -> None:
@@ -534,7 +552,10 @@ async def main() -> None:
         field = callback.data.split(":", 1)[1]
         await state.update_data(field=field)
         if field == "photos":
-            await callback.message.answer("Yangi rasmlarni yuboring (1-3 dona). Tugatish: 'Tugatish'.")
+            await callback.message.answer(
+                "Yangi rasmlarni yuboring (1-3 dona). Tugatish: 'Tugatish' tugmasi.",
+                reply_markup=add_product_photos_keyboard(),
+            )
             await state.set_state(EditProductStates.photos)
         else:
             await callback.message.answer("Yangi qiymatni kiriting.")
@@ -563,6 +584,10 @@ async def main() -> None:
     async def edit_product_photos(message: types.Message, state: FSMContext) -> None:
         data = await state.get_data()
         photos = data.get("photos", [])
+        if message.text and message.text.lower() == "mahsulotlar":
+            await state.clear()
+            await show_products(message)
+            return
         if message.text and message.text.lower() == "tugatish":
             if photos:
                 db.set_product_photos(data["product_id"], photos[:3])
@@ -570,7 +595,10 @@ async def main() -> None:
             await state.clear()
             return
         if not message.photo:
-            await message.answer("Iltimos, rasm yuboring yoki 'Tugatish' deb yozing.")
+            await message.answer(
+                "Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                reply_markup=add_product_photos_keyboard(),
+            )
             return
         photos.append(message.photo[-1].file_id)
         await state.update_data(photos=photos[:3])
@@ -579,7 +607,10 @@ async def main() -> None:
             await message.answer("Rasmlar yangilandi.", reply_markup=user_keyboard(True))
             await state.clear()
         else:
-            await message.answer("Yana rasm yuboring yoki 'Tugatish' deb yozing.")
+            await message.answer(
+                "Yana rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                reply_markup=add_product_photos_keyboard(),
+            )
 
     @dp.message(F.text == "Рассылка")
     async def broadcast_start(message: types.Message, state: FSMContext) -> None:
