@@ -167,15 +167,26 @@ def orders_status_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="Не закрытые статусы", callback_data="orders:open"),
                 InlineKeyboardButton(text="Закрытые статусы", callback_data="orders:closed:0"),
-            ]
+            ],
+            [InlineKeyboardButton(text="Отмененные статусы", callback_data="orders:canceled:0")],
         ]
     )
 
 
-def order_close_keyboard(order_id: int) -> InlineKeyboardMarkup:
+def order_action_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Закрыть статус", callback_data=f"orders:close:{order_id}")]
+            [InlineKeyboardButton(text="Принять и закрыть", callback_data=f"orders:close:{order_id}")],
+            [InlineKeyboardButton(text="Отменить и закрыть", callback_data=f"orders:cancel:{order_id}")],
+        ]
+    )
+
+
+def order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Да, отменить", callback_data=f"orders:cancel_confirm:{order_id}")],
+            [InlineKeyboardButton(text="Нет", callback_data=f"orders:cancel_keep:{order_id}")],
         ]
     )
 
@@ -221,7 +232,7 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
             await bot.send_message(
                 admin_id,
                 text,
-                reply_markup=order_close_keyboard(order_id),
+                reply_markup=order_action_keyboard(order_id),
                 parse_mode="HTML",
             )
         except Exception:
@@ -564,10 +575,12 @@ async def main() -> None:
         total = db.count_orders()
         open_count = db.count_orders_by_status("open")
         closed_count = db.count_orders_by_status("closed")
+        canceled_count = db.count_orders_by_status("canceled")
         await message.answer(
             "Zayavkalar bo'yicha ma'lumot:\n"
             f"Umumiy: {total}\n"
             f"Yopilgan: {closed_count}\n"
+            f"Bekor qilingan: {canceled_count}\n"
             f"Ochiq: {open_count}",
             reply_markup=orders_status_keyboard(),
         )
@@ -585,7 +598,7 @@ async def main() -> None:
         for order in orders:
             text = format_order_message(order)
             await callback.message.answer(
-                text, reply_markup=order_close_keyboard(order["id"]), parse_mode="HTML"
+                text, reply_markup=order_action_keyboard(order["id"]), parse_mode="HTML"
             )
         await callback.answer()
 
@@ -595,16 +608,63 @@ async def main() -> None:
             await callback.answer()
             return
         order_id = int(callback.data.split(":", 2)[2])
-        updated, closed_by = db.close_order(order_id, callback.from_user.id)
+        updated, status, closed_by = db.update_order_status(
+            order_id, "closed", callback.from_user.id
+        )
         if not updated:
-            if closed_by and closed_by != callback.from_user.id:
+            if status == "canceled":
+                await callback.answer("Status allaqachon bekor qilingan.", show_alert=True)
+            elif closed_by and closed_by != callback.from_user.id:
                 await callback.answer("Boshqa admin allaqachon statusni yopgan.", show_alert=True)
             else:
                 await callback.answer("Status allaqachon yopilgan.", show_alert=True)
             return
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer("Status yopildi")
+        await callback.answer("Zayavka qabul qilindi va yopildi")
+
+    @dp.callback_query(F.data.startswith("orders:cancel:"))
+    async def prompt_cancel_order(callback: types.CallbackQuery) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        order_id = int(callback.data.split(":", 2)[2])
+        if callback.message:
+            await callback.message.edit_reply_markup(
+                reply_markup=order_cancel_confirm_keyboard(order_id)
+            )
+        await callback.answer("Zayavkani bekor qilishni tasdiqlang", show_alert=False)
+
+    @dp.callback_query(F.data.startswith("orders:cancel_confirm:"))
+    async def cancel_order_status(callback: types.CallbackQuery) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        order_id = int(callback.data.split(":", 3)[2])
+        updated, status, closed_by = db.update_order_status(
+            order_id, "canceled", callback.from_user.id
+        )
+        if not updated:
+            if status == "closed":
+                await callback.answer("Status allaqachon yopilgan.", show_alert=True)
+            elif closed_by and closed_by != callback.from_user.id:
+                await callback.answer("Boshqa admin allaqachon bekor qilgan.", show_alert=True)
+            else:
+                await callback.answer("Status allaqachon bekor qilingan.", show_alert=True)
+            return
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.answer("Zayavka bekor qilindi")
+
+    @dp.callback_query(F.data.startswith("orders:cancel_keep:"))
+    async def cancel_order_keep(callback: types.CallbackQuery) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        order_id = int(callback.data.split(":", 3)[2])
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=order_action_keyboard(order_id))
+        await callback.answer("Bekor qilinmadi")
 
     @dp.callback_query(F.data.startswith("orders:closed:"))
     async def show_closed_orders(callback: types.CallbackQuery) -> None:
@@ -639,6 +699,46 @@ async def main() -> None:
                     [
                         InlineKeyboardButton(
                             text="Yana 10 ta", callback_data=f"orders:closed:{offset + limit}"
+                        )
+                    ]
+                ]
+            )
+        await callback.message.answer(message_text, reply_markup=keyboard, parse_mode="HTML")
+        await callback.answer()
+
+    @dp.callback_query(F.data.startswith("orders:canceled:"))
+    async def show_canceled_orders(callback: types.CallbackQuery) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        offset = int(callback.data.split(":", 2)[2])
+        limit = 10
+        orders = db.list_orders_with_details(status="canceled", limit=limit, offset=offset)
+        if not orders:
+            if offset == 0:
+                await callback.message.answer("Bekor qilingan zayavkalar yo'q.")
+            else:
+                await callback.message.answer("Boshqa bekor qilingan zayavkalar yo'q.")
+            await callback.answer()
+            return
+        lines = []
+        for idx, order in enumerate(orders, start=offset + 1):
+            lines.append(
+                "\n".join(
+                    [
+                        f"{idx}. {format_order_message(order, include_id=False, include_address=True)}"
+                    ]
+                )
+            )
+        message_text = "\n\n".join(lines)
+        total_canceled = db.count_orders_by_status("canceled")
+        keyboard = None
+        if offset + limit < total_canceled:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Yana 10 ta", callback_data=f"orders:canceled:{offset + limit}"
                         )
                     ]
                 ]

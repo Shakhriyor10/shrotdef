@@ -277,7 +277,11 @@ def add_order(
         return int(cur.lastrowid)
 
 
-def close_order(order_id: int, admin_id: int) -> tuple[bool, Optional[int]]:
+def update_order_status(
+    order_id: int,
+    new_status: str,
+    admin_id: int,
+) -> tuple[bool, Optional[str], Optional[int]]:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
         row = conn.execute(
@@ -285,18 +289,19 @@ def close_order(order_id: int, admin_id: int) -> tuple[bool, Optional[int]]:
             (order_id,),
         ).fetchone()
         if not row:
-            return False, None
-        if row["status"] == "closed":
-            return False, row["closed_by"]
+            return False, None, None
+        current_status = row["status"]
+        if current_status != "open":
+            return False, current_status, row["closed_by"]
         conn.execute(
             """
             UPDATE orders
-            SET status = 'closed', closed_at = ?, closed_by = ?
+            SET status = ?, closed_at = ?, closed_by = ?
             WHERE id = ? AND status = 'open'
             """,
-            (now, admin_id, order_id),
+            (new_status, now, admin_id, order_id),
         )
-        return True, admin_id
+        return True, new_status, admin_id
 
 
 def count_orders() -> int:
