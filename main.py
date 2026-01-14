@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
 
@@ -76,7 +77,8 @@ def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
         [KeyboardButton(text="Yangiliklar")],
     ]
     if is_admin:
-        rows.append([KeyboardButton(text="Statistika"), KeyboardButton(text="Рассылка")])
+        rows.append([KeyboardButton(text="Statistika"), KeyboardButton(text="Список заявки")])
+        rows.append([KeyboardButton(text="Рассылка")])
         rows.append([
             KeyboardButton(text="Mahsulot qo'shish"),
             KeyboardButton(text="Mahsulotni tahrirlash"),
@@ -116,6 +118,37 @@ def edit_fields_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Rasmlar", callback_data="field:photos")],
         ]
     )
+
+
+def orders_status_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Не закрытые статусы", callback_data="orders:open"),
+                InlineKeyboardButton(text="Закрытые статусы", callback_data="orders:closed:0"),
+            ]
+        ]
+    )
+
+
+def order_close_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Закрыть статус", callback_data=f"orders:close:{order_id}")]
+        ]
+    )
+
+
+def format_order_datetime(value: str) -> str:
+    try:
+        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return value
+
+
+def format_order_person(first_name: Optional[str], last_name: Optional[str]) -> str:
+    parts = [part for part in [first_name, last_name] if part]
+    return " ".join(parts) if parts else "Noma'lum"
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
@@ -313,6 +346,102 @@ async def main() -> None:
         await message.answer(
             f"Umumiy foydalanuvchilar: {total}\nSo'nggi 30 kunda faol: {active}"
         )
+
+    @dp.message(F.text == "Список заявки")
+    async def show_orders_summary(message: types.Message) -> None:
+        if not is_admin(message.from_user.id):
+            return
+        total = db.count_orders()
+        open_count = db.count_orders_by_status("open")
+        closed_count = db.count_orders_by_status("closed")
+        await message.answer(
+            "Zayavkalar bo'yicha ma'lumot:\n"
+            f"Umumiy: {total}\n"
+            f"Yopilgan: {closed_count}\n"
+            f"Ochiq: {open_count}",
+            reply_markup=orders_status_keyboard(),
+        )
+
+    @dp.callback_query(F.data == "orders:open")
+    async def show_open_orders(callback: types.CallbackQuery) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        orders = db.list_orders_with_details(status="open")
+        if not orders:
+            await callback.message.answer("Hozircha ochiq zayavkalar yo'q.")
+            await callback.answer()
+            return
+        for order in orders:
+            person = format_order_person(order["first_name"], order["last_name"])
+            created_at = format_order_datetime(order["created_at"])
+            text = (
+                f"ID: {order['id']}\n"
+                f"Ism: {person}\n"
+                f"Mahsulot: {order['product_name']}\n"
+                f"Miqdor: {order['quantity']}\n"
+                f"Telefon: {order['phone'] or 'Kiritilmagan'}\n"
+                f"Sana: {created_at}"
+            )
+            await callback.message.answer(
+                text, reply_markup=order_close_keyboard(order["id"])
+            )
+        await callback.answer()
+
+    @dp.callback_query(F.data.startswith("orders:close:"))
+    async def close_order_status(callback: types.CallbackQuery) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        order_id = int(callback.data.split(":", 2)[2])
+        db.close_order(order_id)
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.answer("Status yopildi")
+
+    @dp.callback_query(F.data.startswith("orders:closed:"))
+    async def show_closed_orders(callback: types.CallbackQuery) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        offset = int(callback.data.split(":", 2)[2])
+        limit = 10
+        orders = db.list_orders_with_details(status="closed", limit=limit, offset=offset)
+        if not orders:
+            if offset == 0:
+                await callback.message.answer("Yopilgan zayavkalar yo'q.")
+            else:
+                await callback.message.answer("Boshqa yopilgan zayavkalar yo'q.")
+            await callback.answer()
+            return
+        lines = []
+        for idx, order in enumerate(orders, start=offset + 1):
+            person = format_order_person(order["first_name"], order["last_name"])
+            created_at = format_order_datetime(order["created_at"])
+            lines.append(
+                "\n".join(
+                    [
+                        f"{idx}. {person}",
+                        f"Telefon: {order['phone'] or 'Kiritilmagan'}",
+                        f"Sana: {created_at}",
+                    ]
+                )
+            )
+        message_text = "\n\n".join(lines)
+        total_closed = db.count_orders_by_status("closed")
+        keyboard = None
+        if offset + limit < total_closed:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Yana 10 ta", callback_data=f"orders:closed:{offset + limit}"
+                        )
+                    ]
+                ]
+            )
+        await callback.message.answer(message_text, reply_markup=keyboard)
+        await callback.answer()
 
     @dp.message(F.text == "Mahsulot qo'shish")
     async def add_product_start(message: types.Message, state: FSMContext) -> None:

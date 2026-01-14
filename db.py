@@ -56,11 +56,24 @@ def init_db() -> None:
                 quantity TEXT NOT NULL,
                 address TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                closed_at TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
             )
             """
         )
+        try:
+            conn.execute(
+                "ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'open'"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE orders ADD COLUMN closed_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("UPDATE orders SET status = 'open' WHERE status IS NULL")
 
 
 def add_or_update_user(tg_id: int, first_name: str, last_name: Optional[str]) -> None:
@@ -201,11 +214,67 @@ def add_order(user_id: int, product_id: int, quantity: str, address: str) -> Non
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO orders (user_id, product_id, quantity, address, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO orders (user_id, product_id, quantity, address, created_at, status)
+            VALUES (?, ?, ?, ?, ?, 'open')
             """,
             (user_id, product_id, quantity, address, now),
         )
+
+
+def close_order(order_id: int) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE orders SET status = 'closed', closed_at = ? WHERE id = ?",
+            (now, order_id),
+        )
+
+
+def count_orders() -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS total FROM orders").fetchone()
+    return int(row["total"])
+
+
+def count_orders_by_status(status: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM orders WHERE status = ?",
+            (status,),
+        ).fetchone()
+    return int(row["total"])
+
+
+def list_orders_with_details(
+    status: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> Iterable[sqlite3.Row]:
+    query = """
+        SELECT
+            orders.id,
+            orders.quantity,
+            orders.address,
+            orders.created_at,
+            orders.status,
+            users.first_name,
+            users.last_name,
+            users.phone,
+            products.name AS product_name
+        FROM orders
+        JOIN users ON orders.user_id = users.id
+        JOIN products ON orders.product_id = products.id
+    """
+    params: list[object] = []
+    if status:
+        query += " WHERE orders.status = ?"
+        params.append(status)
+    query += " ORDER BY orders.created_at DESC"
+    if limit is not None:
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+    with get_connection() as conn:
+        return conn.execute(query, params).fetchall()
 
 
 def count_users() -> int:
