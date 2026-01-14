@@ -431,6 +431,15 @@ def format_support_user_details(user: types.User) -> str:
     )
 
 
+def parse_support_user_id(text: Optional[str]) -> Optional[int]:
+    if not text:
+        return None
+    match = re.search(r"\bID:\s*(\d+)\b", text)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
 async def handle_media_group_timeout(user_id: int, bot: Bot, state: FSMContext) -> None:
     await asyncio.sleep(1.2)
     buffer_entry = media_group_buffer.get(user_id)
@@ -701,12 +710,16 @@ async def main() -> None:
         success = 0
         for group_id in GROUP_LIST:
             try:
-                await message.bot.send_message(group_id, format_support_user_details(message.from_user))
+                detail_message = await message.bot.send_message(
+                    group_id,
+                    format_support_user_details(message.from_user),
+                )
                 forwarded = await message.bot.copy_message(
                     chat_id=group_id,
                     from_chat_id=message.chat.id,
                     message_id=message.message_id,
                 )
+                support_reply_map[(group_id, detail_message.message_id)] = message.from_user.id
                 support_reply_map[(group_id, forwarded.message_id)] = message.from_user.id
                 success += 1
             except Exception:
@@ -1334,6 +1347,8 @@ async def main() -> None:
         if not reply_to:
             return
         user_id = support_reply_map.get((message.chat.id, reply_to.message_id))
+        if not user_id:
+            user_id = parse_support_user_id(reply_to.text)
         if not user_id:
             return
         await message.bot.send_message(user_id, "💬 Qo'llab-quvvatlashdan javob:")
