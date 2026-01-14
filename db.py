@@ -78,6 +78,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE orders ADD COLUMN closed_at TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE orders ADD COLUMN closed_by INTEGER")
+        except sqlite3.OperationalError:
+            pass
         conn.execute("UPDATE orders SET status = 'open' WHERE status IS NULL")
         conn.execute(
             """
@@ -229,10 +233,10 @@ def add_order(
     quantity: str,
     address: str,
     order_price_per_kg: float,
-) -> None:
+) -> int:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
-        conn.execute(
+        cur = conn.execute(
             """
             INSERT INTO orders (
                 user_id,
@@ -247,15 +251,29 @@ def add_order(
             """,
             (user_id, product_id, quantity, address, now, order_price_per_kg),
         )
+        return int(cur.lastrowid)
 
 
-def close_order(order_id: int) -> None:
+def close_order(order_id: int, admin_id: int) -> tuple[bool, Optional[int]]:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
+        row = conn.execute(
+            "SELECT status, closed_by FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            return False, None
+        if row["status"] == "closed":
+            return False, row["closed_by"]
         conn.execute(
-            "UPDATE orders SET status = 'closed', closed_at = ? WHERE id = ?",
-            (now, order_id),
+            """
+            UPDATE orders
+            SET status = 'closed', closed_at = ?, closed_by = ?
+            WHERE id = ? AND status = 'open'
+            """,
+            (now, admin_id, order_id),
         )
+        return True, admin_id
 
 
 def count_orders() -> int:
@@ -305,6 +323,30 @@ def list_orders_with_details(
         params.extend([limit, offset])
     with get_connection() as conn:
         return conn.execute(query, params).fetchall()
+
+
+def get_order_with_details(order_id: int) -> Optional[sqlite3.Row]:
+    query = """
+        SELECT
+            orders.id,
+            orders.quantity,
+            orders.address,
+            orders.created_at,
+            orders.status,
+            orders.order_price_per_kg,
+            orders.closed_by,
+            users.first_name,
+            users.last_name,
+            users.phone,
+            products.name AS product_name,
+            products.price_per_kg AS product_price_per_kg
+        FROM orders
+        JOIN users ON orders.user_id = users.id
+        JOIN products ON orders.product_id = products.id
+        WHERE orders.id = ?
+    """
+    with get_connection() as conn:
+        return conn.execute(query, (order_id,)).fetchone()
 
 
 def count_users() -> int:

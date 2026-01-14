@@ -147,6 +147,45 @@ def order_close_keyboard(order_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def format_order_message(order, include_id: bool = True, include_address: bool = True) -> str:
+    person = format_order_person(order["first_name"], order["last_name"])
+    created_at = format_order_datetime(order["created_at"])
+    price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
+    lines = []
+    if include_id:
+        lines.append(f"ID: {order['id']}")
+    lines.extend(
+        [
+            f"Ism: {person}",
+            f"Mahsulot: {order['product_name']}",
+            f"Miqdor: {order['quantity']}",
+            f"Narx (1 kg, ariza vaqti): {format_price(price_per_kg)}",
+            f"Jami narx: {format_deal_price(order['quantity'], price_per_kg)}",
+            f"Telefon: {order['phone'] or 'Kiritilmagan'}",
+        ]
+    )
+    if include_address:
+        lines.append(f"Manzil: {order['address']}")
+    lines.append(f"Sana: {created_at}")
+    return "\n".join(lines)
+
+
+async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
+    order = db.get_order_with_details(order_id)
+    if not order:
+        return
+    text = "Yangi ariza:\n" + format_order_message(order)
+    for admin_id in ADMIN_LIST:
+        try:
+            await bot.send_message(
+                admin_id,
+                text,
+                reply_markup=order_close_keyboard(order_id),
+            )
+        except Exception:
+            continue
+
+
 def format_order_datetime(value: str) -> str:
     try:
         return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
@@ -361,7 +400,7 @@ async def main() -> None:
             await message.answer("Mahsulot topilmadi.")
             await state.clear()
             return
-        db.add_order(
+        order_id = db.add_order(
             user["id"],
             data["product_id"],
             data["quantity"],
@@ -369,6 +408,7 @@ async def main() -> None:
             product["price_per_kg"],
         )
         await message.answer("Arizangiz qabul qilindi!", reply_markup=user_keyboard(is_admin(message.from_user.id)))
+        await notify_admins_new_order(message.bot, order_id)
         await state.clear()
 
     @dp.message(F.text == "Ma'lumot")
@@ -425,19 +465,7 @@ async def main() -> None:
             await callback.answer()
             return
         for order in orders:
-            person = format_order_person(order["first_name"], order["last_name"])
-            created_at = format_order_datetime(order["created_at"])
-            price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
-            text = (
-                f"ID: {order['id']}\n"
-                f"Ism: {person}\n"
-                f"Mahsulot: {order['product_name']}\n"
-                f"Miqdor: {order['quantity']}\n"
-                f"Narx (1 kg, ariza vaqti): {format_price(price_per_kg)}\n"
-                f"Jami narx: {format_deal_price(order['quantity'], price_per_kg)}\n"
-                f"Telefon: {order['phone'] or 'Kiritilmagan'}\n"
-                f"Sana: {created_at}"
-            )
+            text = format_order_message(order)
             await callback.message.answer(
                 text, reply_markup=order_close_keyboard(order["id"])
             )
@@ -449,7 +477,13 @@ async def main() -> None:
             await callback.answer()
             return
         order_id = int(callback.data.split(":", 2)[2])
-        db.close_order(order_id)
+        updated, closed_by = db.close_order(order_id, callback.from_user.id)
+        if not updated:
+            if closed_by and closed_by != callback.from_user.id:
+                await callback.answer("Boshqa admin allaqachon statusni yopgan.", show_alert=True)
+            else:
+                await callback.answer("Status allaqachon yopilgan.", show_alert=True)
+            return
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
         await callback.answer("Status yopildi")
@@ -471,19 +505,10 @@ async def main() -> None:
             return
         lines = []
         for idx, order in enumerate(orders, start=offset + 1):
-            person = format_order_person(order["first_name"], order["last_name"])
-            created_at = format_order_datetime(order["created_at"])
-            price_per_kg = order["order_price_per_kg"] or order["product_price_per_kg"]
             lines.append(
                 "\n".join(
                     [
-                        f"{idx}. {person}",
-                        f"Mahsulot: {order['product_name']}",
-                        f"Miqdor: {order['quantity']}",
-                        f"Narx (1 kg, ariza vaqti): {format_price(price_per_kg)}",
-                        f"Jami narx: {format_deal_price(order['quantity'], price_per_kg)}",
-                        f"Telefon: {order['phone'] or 'Kiritilmagan'}",
-                        f"Sana: {created_at}",
+                        f"{idx}. {format_order_message(order, include_id=False, include_address=False)}"
                     ]
                 )
             )
