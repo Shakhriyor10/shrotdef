@@ -48,6 +48,7 @@ BTN_FINISH = "✅ Tugatish"
 BTN_CANCEL = "❌ Bekor qilish"
 BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
 BTN_SUPPORT = "🆘 Qo'llab-quvvatlash"
+BTN_SHOW_MORE_OPEN = "➡️ Yana 10 ta"
 
 
 class OrderStates(StatesGroup):
@@ -92,6 +93,7 @@ class BroadcastPayload:
 
 media_group_buffer: dict[int, dict[str, object]] = {}
 support_reply_map: dict[tuple[int, int], int] = {}
+open_orders_offsets: dict[int, int] = {}
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -122,6 +124,13 @@ def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
         rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
         rows.append([KeyboardButton(text=BTN_BROADCAST)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def admin_open_orders_keyboard(show_more: bool) -> ReplyKeyboardMarkup:
+    keyboard = user_keyboard(True)
+    if show_more:
+        keyboard.keyboard.append([KeyboardButton(text=BTN_SHOW_MORE_OPEN)])
+    return keyboard
 
 
 def contact_keyboard() -> ReplyKeyboardMarkup:
@@ -334,6 +343,39 @@ def format_user_order_message(order) -> str:
         f"📅 Sana: {created_at}",
     ]
     return "\n".join(lines)
+
+
+async def send_open_orders_page(message: types.Message, admin_id: int, offset: int) -> None:
+    limit = 10
+    orders = db.list_orders_with_details(status="open", limit=limit, offset=offset)
+    if not orders:
+        if offset == 0:
+            await message.answer("📭 Hozircha ochiq zayavkalar yo'q.", reply_markup=user_keyboard(True))
+        else:
+            await message.answer("📭 Boshqa ochiq zayavkalar yo'q.", reply_markup=user_keyboard(True))
+        open_orders_offsets.pop(admin_id, None)
+        return
+    for order in orders:
+        text = format_order_message(order)
+        await message.answer(
+            text,
+            reply_markup=order_action_keyboard(order["id"]),
+            parse_mode="HTML",
+        )
+    total_open = db.count_orders_by_status("open")
+    next_offset = offset + limit
+    if next_offset < total_open:
+        open_orders_offsets[admin_id] = next_offset
+        await message.answer(
+            "⬇️ Yana 10 ta ko'rish uchun tugmani bosing.",
+            reply_markup=admin_open_orders_keyboard(True),
+        )
+    else:
+        open_orders_offsets.pop(admin_id, None)
+        await message.answer(
+            "✅ Barcha ochiq zayavkalar ko'rsatildi.",
+            reply_markup=user_keyboard(True),
+        )
 
 
 async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
@@ -907,17 +949,25 @@ async def main() -> None:
         if not is_admin(callback.from_user.id):
             await callback.answer()
             return
-        orders = db.list_orders_with_details(status="open")
-        if not orders:
-            await callback.message.answer("📭 Hozircha ochiq zayavkalar yo'q.")
+        if not callback.message:
             await callback.answer()
             return
-        for order in orders:
-            text = format_order_message(order)
-            await callback.message.answer(
-                text, reply_markup=order_action_keyboard(order["id"]), parse_mode="HTML"
-            )
+        open_orders_offsets[callback.from_user.id] = 0
+        await send_open_orders_page(callback.message, callback.from_user.id, 0)
         await callback.answer()
+
+    @dp.message(F.text == BTN_SHOW_MORE_OPEN)
+    async def show_more_open_orders(message: types.Message) -> None:
+        if not is_admin(message.from_user.id):
+            return
+        if message.from_user.id not in open_orders_offsets:
+            await message.answer(
+                "📭 Boshqa ochiq zayavkalar yo'q.",
+                reply_markup=user_keyboard(True),
+            )
+            return
+        offset = open_orders_offsets[message.from_user.id]
+        await send_open_orders_page(message, message.from_user.id, offset)
 
     @dp.callback_query(F.data == "orders:search")
     async def prompt_order_search(callback: types.CallbackQuery, state: FSMContext) -> None:
