@@ -93,6 +93,8 @@ class BroadcastPayload:
 
 media_group_buffer: dict[int, dict[str, object]] = {}
 support_reply_map: dict[tuple[int, int], int] = {}
+support_media_group_reject: set[tuple[int, str]] = set()
+admin_media_group_reject: set[tuple[int, str]] = set()
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -459,12 +461,16 @@ async def ensure_user_registered(message: types.Message) -> bool:
     return True
 
 
-def format_support_user_details(phone: Optional[str], text: Optional[str]) -> str:
+def format_support_user_details(
+    name_display: str,
+    phone: Optional[str],
+    text: Optional[str],
+) -> str:
     phone_display = phone or "Telefon yo'q"
     user_text = text.strip() if text else "—"
     return (
         "🆘 Yangi qo'llab-quvvatlash so'rovi\n"
-        "👤 Foydalanuvchi:\n"
+        f"👤 Foydalanuvchi: {name_display}\n"
         f"📞 Telefon: {phone_display}\n\n"
         f"Text: {user_text}\n\n"
         "↩️ Javob berish uchun shu xabarga reply qiling."
@@ -808,6 +814,10 @@ async def main() -> None:
             )
             return
         if message.media_group_id:
+            reject_key = (message.from_user.id, message.media_group_id)
+            if reject_key in support_media_group_reject:
+                return
+            support_media_group_reject.add(reject_key)
             await message.answer(
                 "⚠️ Iltimos, faqat bitta rasm yuboring yoki faqat matn yuboring.",
                 reply_markup=user_keyboard(is_admin(message.from_user.id)),
@@ -823,7 +833,15 @@ async def main() -> None:
             return
         user = db.get_user_by_tg_id(message.from_user.id)
         phone = user["phone"] if user else None
-        support_text = format_support_user_details(phone, message.text or message.caption)
+        full_name = " ".join(
+            part for part in [message.from_user.first_name, message.from_user.last_name] if part
+        )
+        name_display = full_name if full_name else "Noma'lum foydalanuvchi"
+        support_text = format_support_user_details(
+            name_display,
+            phone,
+            message.text or message.caption,
+        )
         success = 0
         for group_id in GROUP_LIST:
             try:
@@ -1512,6 +1530,15 @@ async def main() -> None:
     @dp.message(F.reply_to_message)
     async def support_admin_reply(message: types.Message) -> None:
         if message.chat.id not in GROUP_LIST or not is_admin(message.from_user.id):
+            return
+        if message.media_group_id:
+            reject_key = (message.chat.id, message.media_group_id)
+            if reject_key in admin_media_group_reject:
+                return
+            admin_media_group_reject.add(reject_key)
+            await message.answer(
+                "⚠️ Iltimos, faqat bitta rasm yuboring yoki faqat matn yuboring.",
+            )
             return
         reply_to = message.reply_to_message
         if not reply_to:
