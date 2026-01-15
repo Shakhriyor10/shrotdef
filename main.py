@@ -22,7 +22,7 @@ from aiogram.utils.media_group import MediaGroupBuilder
 import db
 
 ADMIN_LIST = {960217500, 7746040125}
-GROUP_LIST = {5143146778,}
+GROUP_LIST = {-1003493973816,}
 
 INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
@@ -47,6 +47,7 @@ BTN_SEND_PHONE = "📲 Telefon raqamni yuborish"
 BTN_FINISH = "✅ Tugatish"
 BTN_CANCEL = "❌ Bekor qilish"
 BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
+BTN_SUPPORT = "🆘 Qo'llab-quvvatlash"
 
 
 class OrderStates(StatesGroup):
@@ -76,6 +77,10 @@ class OrderSearchStates(StatesGroup):
     order_id = State()
 
 
+class SupportStates(StatesGroup):
+    waiting_message = State()
+
+
 @dataclass
 class BroadcastPayload:
     kind: str
@@ -86,11 +91,20 @@ class BroadcastPayload:
 
 
 media_group_buffer: dict[int, dict[str, object]] = {}
+support_reply_map: dict[tuple[int, int], int] = {}
 
 
 class ActivityMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         if isinstance(event, types.Message) and event.from_user:
+            if event.chat.type != "private":
+                if (
+                    event.chat.id in GROUP_LIST
+                    and event.reply_to_message
+                    and is_admin(event.from_user.id)
+                ):
+                    return await handler(event, data)
+                return
             db.update_last_active(event.from_user.id)
         return await handler(event, data)
 
@@ -103,6 +117,7 @@ def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     ]
     if not is_admin:
         rows.insert(1, [KeyboardButton(text=BTN_MY_ORDERS)])
+        rows.append([KeyboardButton(text=BTN_SUPPORT)])
     if is_admin:
         rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
         rows.append([KeyboardButton(text=BTN_BROADCAST)])
@@ -403,6 +418,28 @@ async def ensure_user_registered(message: types.Message) -> bool:
     return True
 
 
+def format_support_user_details(user: types.User) -> str:
+    username = f"@{user.username}" if user.username else "username yo'q"
+    full_name = " ".join(part for part in [user.first_name, user.last_name] if part)
+    name_display = full_name if full_name else "Noma'lum foydalanuvchi"
+    return (
+        "🆘 Yangi qo'llab-quvvatlash so'rovi\n"
+        f"👤 Foydalanuvchi: {name_display}\n"
+        f"🔗 Username: {username}\n"
+        f"🆔 ID: {user.id}\n"
+        "↩️ Javob berish uchun shu xabarga reply qiling."
+    )
+
+
+def parse_support_user_id(text: Optional[str]) -> Optional[int]:
+    if not text:
+        return None
+    match = re.search(r"\bID:\s*(\d+)\b", text)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
 async def handle_media_group_timeout(user_id: int, bot: Bot, state: FSMContext) -> None:
     await asyncio.sleep(1.2)
     buffer_entry = media_group_buffer.get(user_id)
@@ -642,6 +679,63 @@ async def main() -> None:
         if not await ensure_user_registered(message):
             return
         await message.answer(NEWS_TEXT)
+
+    @dp.message(F.text == BTN_SUPPORT)
+    async def support_start(message: types.Message, state: FSMContext) -> None:
+        if not await ensure_user_registered(message):
+            return
+        await state.set_state(SupportStates.waiting_message)
+        await message.answer(
+            "🆘 Savolingizni yozing yoki rasm/video yuboring. "
+            "Chiqish uchun Bekor qilish tugmasini bosing.",
+            reply_markup=cancel_keyboard(),
+        )
+
+    @dp.message(SupportStates.waiting_message)
+    async def support_receive(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await state.clear()
+            await message.answer(
+                "❌ Qo'llab-quvvatlash bekor qilindi.",
+                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            )
+            return
+        if not GROUP_LIST:
+            await message.answer(
+                "⚠️ Hozircha qo'llab-quvvatlash guruhi mavjud emas.",
+                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            )
+            await state.clear()
+            return
+        success = 0
+        for group_id in GROUP_LIST:
+            try:
+                detail_message = await message.bot.send_message(
+                    group_id,
+                    format_support_user_details(message.from_user),
+                )
+                forwarded = await message.bot.copy_message(
+                    chat_id=group_id,
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id,
+                )
+                support_reply_map[(group_id, detail_message.message_id)] = message.from_user.id
+                support_reply_map[(group_id, forwarded.message_id)] = message.from_user.id
+                success += 1
+            except Exception:
+                continue
+        if not success:
+            await message.answer(
+                "⚠️ Xabarni yuborib bo'lmadi. Iltimos, keyinroq urinib ko'ring.",
+                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            )
+            await state.clear()
+            return
+        await message.answer(
+            "✅ Xabaringiz yuborildi. Javobni shu yerda kuting.",
+            reply_markup=user_keyboard(is_admin(message.from_user.id)),
+        )
+        await state.clear()
 
     @dp.message(F.text == BTN_STATS)
     async def show_stats(message: types.Message) -> None:
@@ -1244,6 +1338,25 @@ async def main() -> None:
             f"✅ Tarqatma yakunlandi. Muvaffaqiyatli: {success}, Xatolar: {failed}."
         )
         await state.clear()
+
+    @dp.message(F.reply_to_message)
+    async def support_admin_reply(message: types.Message) -> None:
+        if message.chat.id not in GROUP_LIST or not is_admin(message.from_user.id):
+            return
+        reply_to = message.reply_to_message
+        if not reply_to:
+            return
+        user_id = support_reply_map.get((message.chat.id, reply_to.message_id))
+        if not user_id:
+            user_id = parse_support_user_id(reply_to.text)
+        if not user_id:
+            return
+        await message.bot.send_message(user_id, "💬 Qo'llab-quvvatlashdan javob:")
+        await message.bot.copy_message(
+            chat_id=user_id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
 
     @dp.message()
     async def fallback(message: types.Message) -> None:
