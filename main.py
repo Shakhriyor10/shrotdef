@@ -33,7 +33,7 @@ CONTACT_TEXT = """📞 Aloqa uchun:
 """
 NEWS_TEXT = """📰 Yangiliklar hozircha mavjud emas."""
 
-BTN_PRODUCTS = "🛍 Mahsulotlar"
+BTN_PRODUCTS = "📦 Mahsulotlar"
 BTN_MY_ORDERS = "📦 Mening buyurtmalarim"
 BTN_INFO = "ℹ️ Ma'lumot"
 BTN_CONTACT = "📞 Aloqa"
