@@ -16,7 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
-                           KeyboardButton, ReplyKeyboardMarkup, InputMediaPhoto)
+                           KeyboardButton, ReplyKeyboardMarkup)
 from aiogram.utils.media_group import MediaGroupBuilder
 
 import db
@@ -93,7 +93,6 @@ class BroadcastPayload:
 
 media_group_buffer: dict[int, dict[str, object]] = {}
 support_reply_map: dict[tuple[int, int], int] = {}
-support_media_group_buffer: dict[tuple[int, str], dict[str, object]] = {}
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -497,36 +496,6 @@ async def handle_media_group_timeout(user_id: int, bot: Bot, state: FSMContext) 
     await state.set_state(BroadcastStates.confirm)
 
 
-async def handle_support_media_group_timeout(
-    buffer_key: tuple[int, str],
-    bot: Bot,
-    group_ids: set[int],
-) -> None:
-    await asyncio.sleep(1.2)
-    buffer_entry = support_media_group_buffer.get(buffer_key)
-    if not buffer_entry or buffer_entry.get("finalized"):
-        return
-    buffer_entry["finalized"] = True
-    photos: list[str] = buffer_entry["photos"]
-    if not photos:
-        return
-    support_text = buffer_entry.get("support_text")
-    media = []
-    for idx, file_id in enumerate(photos):
-        if idx == 0 and support_text:
-            media.append(InputMediaPhoto(media=file_id, caption=support_text))
-        else:
-            media.append(InputMediaPhoto(media=file_id))
-    user_id = buffer_entry["user_id"]
-    for group_id in group_ids:
-        try:
-            sent_messages = await bot.send_media_group(chat_id=group_id, media=media)
-            for sent_message in sent_messages:
-                support_reply_map[(group_id, sent_message.message_id)] = user_id
-        except Exception:
-            continue
-
-
 def parse_price(value: str) -> Optional[float]:
     try:
         return float(value.replace(",", "."))
@@ -838,6 +807,13 @@ async def main() -> None:
                 reply_markup=user_keyboard(is_admin(message.from_user.id)),
             )
             return
+        if message.media_group_id:
+            await message.answer(
+                "⚠️ Iltimos, faqat bitta rasm yuboring yoki faqat matn yuboring.",
+                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            )
+            await state.clear()
+            return
         if not GROUP_LIST:
             await message.answer(
                 "⚠️ Hozircha qo'llab-quvvatlash guruhi mavjud emas.",
@@ -848,31 +824,6 @@ async def main() -> None:
         user = db.get_user_by_tg_id(message.from_user.id)
         phone = user["phone"] if user else None
         support_text = format_support_user_details(phone, message.text or message.caption)
-        if message.media_group_id and message.photo:
-            buffer_key = (message.from_user.id, message.media_group_id)
-            buffer_entry = support_media_group_buffer.setdefault(
-                buffer_key,
-                {
-                    "photos": [],
-                    "support_text": None,
-                    "user_id": message.from_user.id,
-                    "finalized": False,
-                    "task_created": False,
-                },
-            )
-            buffer_entry["photos"].append(message.photo[-1].file_id)
-            if message.caption:
-                buffer_entry["support_text"] = support_text
-            if not buffer_entry["task_created"]:
-                buffer_entry["task_created"] = True
-                asyncio.create_task(
-                    handle_support_media_group_timeout(
-                        buffer_key,
-                        message.bot,
-                        GROUP_LIST,
-                    )
-                )
-            return
         success = 0
         for group_id in GROUP_LIST:
             try:
