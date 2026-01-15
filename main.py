@@ -130,6 +130,7 @@ def admin_open_orders_keyboard(show_more: bool) -> ReplyKeyboardMarkup:
     keyboard = user_keyboard(True)
     if show_more:
         keyboard.keyboard.append([KeyboardButton(text=BTN_SHOW_MORE_OPEN)])
+    keyboard.keyboard.append([KeyboardButton(text=BTN_CANCEL)])
     return keyboard
 
 
@@ -968,6 +969,15 @@ async def main() -> None:
             return
         offset = open_orders_offsets[message.from_user.id]
         await send_open_orders_page(message, message.from_user.id, offset)
+
+    @dp.message(F.text == BTN_CANCEL)
+    async def cancel_open_orders_paging(message: types.Message) -> None:
+        if not is_admin(message.from_user.id):
+            return
+        if message.from_user.id not in open_orders_offsets:
+            return
+        open_orders_offsets.pop(message.from_user.id, None)
+        await message.answer("↩️ Menu", reply_markup=user_keyboard(True))
 
     @dp.callback_query(F.data == "orders:search")
     async def prompt_order_search(callback: types.CallbackQuery, state: FSMContext) -> None:
