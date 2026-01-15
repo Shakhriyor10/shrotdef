@@ -393,13 +393,10 @@ def parse_quantity_to_kg(value: str) -> Optional[float]:
 
 
 def parse_quantity_to_tons(value: str) -> Optional[float]:
-    cleaned = value.strip().lower()
-    if "kg" in cleaned or "кг" in cleaned:
+    cleaned = value.strip()
+    if not re.fullmatch(r"\d+(?:[.,]\d+)?", cleaned):
         return None
-    match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", cleaned)
-    if not match:
-        return None
-    return float(match.group(1).replace(",", "."))
+    return float(cleaned.replace(",", "."))
 
 
 def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
@@ -627,7 +624,7 @@ async def main() -> None:
         qty_tons = parse_quantity_to_tons(message.text or "")
         if qty_tons is None:
             await message.answer(
-                "⚠️ Miqdorni to'g'ri kiriting (faqat tonna, masalan: 2.3 yoki 2,3).",
+                "⚠️ Miqdorni to'g'ri kiriting (faqat raqamlar: 2, 2.3 yoki 2,3).",
                 reply_markup=cancel_keyboard(),
             )
             return
