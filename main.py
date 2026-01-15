@@ -53,6 +53,7 @@ BTN_SUPPORT = "🆘 Qo'llab-quvvatlash"
 class OrderStates(StatesGroup):
     quantity = State()
     address = State()
+    confirm = State()
 
 
 class AddProductStates(StatesGroup):
@@ -259,6 +260,15 @@ def user_order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Ha, bekor qilish", callback_data=f"user_orders:cancel_confirm:{order_id}")],
             [InlineKeyboardButton(text="↩️ Yo'q", callback_data=f"user_orders:cancel_keep:{order_id}")],
+        ]
+    )
+
+
+def order_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Buyurtmani tasdiqlash", callback_data="order_confirm")],
+            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="order_cancel")],
         ]
     )
 
@@ -642,13 +652,7 @@ async def main() -> None:
         )
         await state.set_state(OrderStates.address)
 
-    async def finalize_order(
-        message: types.Message,
-        state: FSMContext,
-        address: str,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-    ) -> None:
+    async def send_order_confirmation(message: types.Message, state: FSMContext) -> None:
         data = await state.get_data()
         user = db.get_user_by_tg_id(message.from_user.id)
         if not user:
@@ -660,29 +664,66 @@ async def main() -> None:
             await message.answer("❌ Mahsulot topilmadi.")
             await state.clear()
             return
+        address = data.get("address")
+        if not address:
+            await message.answer("⚠️ Manzil topilmadi, qayta kiriting.")
+            await state.clear()
+            return
+        quantity = data["quantity"]
+        price_per_kg = product["price_per_kg"]
+        location_link = format_location_link(data.get("latitude"), data.get("longitude"))
+        lines = [
+            "📦 Buyurtma ma'lumotlari:",
+            f"📦 Mahsulot: {escape(product['name'])}",
+            f"⚖️ Miqdor: {escape(quantity)}",
+            f"💰 Narx (1 kg): {escape(format_price(price_per_kg))} сум",
+            f"💵 Jami: {escape(format_deal_price(quantity, price_per_kg))}",
+            f"📍 Manzil: {escape(address)}",
+        ]
+        if location_link:
+            lines.append(f"🗺 Lokatsiya: <a href=\"{escape(location_link)}\">Manzilga utish</a>")
+        lines.append("✅ Buyurtmani tasdiqlaysizmi?")
+        await message.answer(
+            "\n".join(lines),
+            reply_markup=order_confirm_keyboard(),
+            parse_mode="HTML",
+        )
+        await state.set_state(OrderStates.confirm)
+
+    async def finalize_order(message: types.Message, state: FSMContext, user_id: int) -> None:
+        data = await state.get_data()
+        user = db.get_user_by_tg_id(user_id)
+        if not user:
+            await message.answer("❌ Foydalanuvchi topilmadi.")
+            await state.clear()
+            return
+        product = db.get_product(data["product_id"])
+        if not product:
+            await message.answer("❌ Mahsulot topilmadi.")
+            await state.clear()
+            return
+        address = data.get("address")
+        if not address:
+            await message.answer("⚠️ Manzil topilmadi, qayta kiriting.")
+            await state.clear()
+            return
         order_id = db.add_order(
             user["id"],
             data["product_id"],
             data["quantity"],
             address,
             product["price_per_kg"],
-            latitude=latitude,
-            longitude=longitude,
+            latitude=data.get("latitude"),
+            longitude=data.get("longitude"),
         )
         await message.answer(
-            "✅ Arizangiz qabul qilindi!", reply_markup=user_keyboard(is_admin(message.from_user.id))
+            "✅ Buyurtma tasdiqlandi!", reply_markup=user_keyboard(is_admin(message.from_user.id))
         )
         await notify_admins_new_order(message.bot, order_id)
         await state.clear()
 
     @dp.message(OrderStates.address, F.location)
     async def order_address_location(message: types.Message, state: FSMContext) -> None:
-        if is_cancel_message(message):
-            await state.clear()
-            await message.answer(
-                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
-            )
-            return
         location = message.location
         if not location:
             await message.answer("⚠️ Lokatsiya topilmadi, qayta yuboring.")
@@ -690,13 +731,12 @@ async def main() -> None:
         address_text = await reverse_geocode(location.latitude, location.longitude)
         if not address_text:
             address_text = "📍 Lokatsiya yuborildi"
-        await finalize_order(
-            message,
-            state,
-            address_text,
+        await state.update_data(
+            address=address_text,
             latitude=location.latitude,
             longitude=location.longitude,
         )
+        await send_order_confirmation(message, state)
 
     @dp.message(OrderStates.address)
     async def order_address(message: types.Message, state: FSMContext) -> None:
@@ -706,7 +746,29 @@ async def main() -> None:
                 "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
             )
             return
-        await finalize_order(message, state, message.text)
+        await state.update_data(address=message.text, latitude=None, longitude=None)
+        await send_order_confirmation(message, state)
+
+    @dp.callback_query(F.data == "order_confirm")
+    async def confirm_order(callback: types.CallbackQuery, state: FSMContext) -> None:
+        current_state = await state.get_state()
+        if current_state != OrderStates.confirm:
+            await callback.answer()
+            return
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await finalize_order(callback.message, state, callback.from_user.id)
+        await callback.answer("✅ Buyurtma tasdiqlandi")
+
+    @dp.callback_query(F.data == "order_cancel")
+    async def cancel_order(callback: types.CallbackQuery, state: FSMContext) -> None:
+        await state.clear()
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer(
+                "❌ Buyurtma bekor qilindi.", reply_markup=user_keyboard(is_admin(callback.from_user.id))
+            )
+        await callback.answer("❌ Bekor qilindi")
 
     @dp.message(F.text == BTN_INFO)
     async def show_info(message: types.Message) -> None:
