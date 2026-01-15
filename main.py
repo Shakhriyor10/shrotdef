@@ -197,6 +197,20 @@ def edit_fields_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="💰 Narxi", callback_data="field:price")],
             [InlineKeyboardButton(text="🗒 Tavsif", callback_data="field:description")],
             [InlineKeyboardButton(text="🖼 Rasmlar", callback_data="field:photos")],
+            [InlineKeyboardButton(text="🗑 O'chirish", callback_data="field:delete")],
+        ]
+    )
+
+
+def delete_product_confirm_keyboard(product_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Ha, o'chirish", callback_data=f"product_delete:confirm:{product_id}"
+                )
+            ],
+            [InlineKeyboardButton(text="↩️ Yo'q", callback_data=f"product_delete:cancel:{product_id}")],
         ]
     )
 
@@ -1216,6 +1230,15 @@ async def main() -> None:
     @dp.callback_query(EditProductStates.field, F.data.startswith("field:"))
     async def edit_product_field(callback: types.CallbackQuery, state: FSMContext) -> None:
         field = callback.data.split(":", 1)[1]
+        if field == "delete":
+            data = await state.get_data()
+            product_id = data["product_id"]
+            await callback.message.answer(
+                "🗑 Mahsulotni o'chirishni tasdiqlaysizmi?",
+                reply_markup=delete_product_confirm_keyboard(product_id),
+            )
+            await callback.answer()
+            return
         await state.update_data(field=field)
         if field == "photos":
             await callback.message.answer(
@@ -1280,6 +1303,35 @@ async def main() -> None:
         db.set_product_photos(data["product_id"], photos[:1])
         await message.answer("✅ Rasmlar yangilandi.", reply_markup=user_keyboard(True))
         await state.clear()
+
+    @dp.callback_query(F.data.startswith("product_delete:confirm:"))
+    async def confirm_product_delete(
+        callback: types.CallbackQuery, state: FSMContext
+    ) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        product_id = int(callback.data.split(":", 2)[2])
+        removed = db.delete_product(product_id)
+        if not removed:
+            await callback.answer("🔎 Mahsulot topilmadi.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.answer("🗑 Mahsulot o'chirildi.", reply_markup=user_keyboard(True))
+        await callback.answer()
+
+    @dp.callback_query(F.data.startswith("product_delete:cancel:"))
+    async def cancel_product_delete(
+        callback: types.CallbackQuery, state: FSMContext
+    ) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        product_id = int(callback.data.split(":", 2)[2])
+        await state.update_data(product_id=product_id)
+        await state.set_state(EditProductStates.field)
+        await callback.message.answer("✏️ Nimani tahrirlaysiz?", reply_markup=edit_fields_keyboard())
+        await callback.answer("↩️ O'chirish bekor qilindi")
 
     @dp.message(F.text == BTN_BROADCAST)
     async def broadcast_start(message: types.Message, state: FSMContext) -> None:
