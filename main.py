@@ -359,6 +359,14 @@ def format_price(value: Optional[float]) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
+def format_money_with_commas(value: Optional[float]) -> str:
+    if value is None:
+        return "⚠️ Kiritilmagan"
+    if abs(value - round(value)) < 1e-9:
+        return f"{int(round(value)):,}"
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
 def parse_quantity_to_kg(value: str) -> Optional[float]:
     cleaned = value.strip().lower()
     match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", cleaned)
@@ -386,7 +394,7 @@ def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
     qty_kg = parse_quantity_to_kg(quantity)
     if qty_kg is None:
         return "⚠️ Hisoblab bo'lmadi"
-    return f"{format_price(qty_kg * price_per_kg)} сум"
+    return f"{format_money_with_commas(qty_kg * price_per_kg)} сум"
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
