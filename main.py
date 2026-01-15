@@ -21,8 +21,8 @@ from aiogram.utils.media_group import MediaGroupBuilder
 
 import db
 
-ADMIN_LIST = {960217500, 7746040125, 8359092913}
-GROUP_LIST = {-1004745573608,}
+ADMIN_LIST = {960217500, 8359092913}
+GROUP_LIST = {-1003493973816,}
 
 INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
