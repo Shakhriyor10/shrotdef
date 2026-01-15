@@ -267,7 +267,8 @@ def format_order_message(order, include_id: bool = True, include_address: bool =
             f"👤 Ism: {person}",
             f"📦 Mahsulot: {escape(order['product_name'])}",
             f"⚖️ Miqdor: {escape(order['quantity'])}",
-            f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+            f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))} сум",
+            f"💵 Jami: {escape(format_deal_price(order['quantity'], price_per_kg))}",
             f"📞 Telefon: {escape(order['phone'] or 'Kiritilmagan')}",
         ]
     )
@@ -312,7 +313,8 @@ def format_user_order_message(order) -> str:
         f"🆔 ID: {escape(str(order['id']))}",
         f"📦 Mahsulot: {escape(order['product_name'])}",
         f"⚖️ Miqdor: {escape(order['quantity'])}",
-        f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+        f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))} сум",
+        f"💵 Jami: {escape(format_deal_price(order['quantity'], price_per_kg))}",
         f"📍 Manzil: {escape(order['address'])}",
         f"📌 Holati: {escape(status_label)}",
         f"📅 Sana: {created_at}",
@@ -374,14 +376,14 @@ def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
     qty_kg = parse_quantity_to_kg(quantity)
     if qty_kg is None:
         return "⚠️ Hisoblab bo'lmadi"
-    return format_price(qty_kg * price_per_kg)
+    return f"{format_price(qty_kg * price_per_kg)} сум"
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
     photos = db.get_product_photos(product["id"])
     caption = (
         f"📦 Mahsulot: {product['name']}\n"
-        f"💰 Narxi (1 kg): {product['price_per_kg']}\n"
+        f"💰 Narxi (1 kg): {product['price_per_kg']} сум\n"
         f"🗒 Tavsif: {product['description'] or 'Kiritilmagan'}"
     )
     if photos:
@@ -575,7 +577,8 @@ async def main() -> None:
         product_id = int(callback.data.split(":", 1)[1])
         await state.update_data(product_id=product_id)
         await callback.message.answer(
-            "⚖️ Necha kg yoki necha tonna kerak? (masalan: 150 kg yoki 2 tonna)",
+            "⚖️ Necha kg yoki necha tonna kerak? (masalan: 2000 kg yoki 2 tonna)\n"
+            "📌 Minimal buyurtma: 2 tonna.",
             reply_markup=cancel_keyboard(),
         )
         await state.set_state(OrderStates.quantity)
@@ -587,6 +590,19 @@ async def main() -> None:
             await state.clear()
             await message.answer(
                 "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+            )
+            return
+        qty_kg = parse_quantity_to_kg(message.text or "")
+        if qty_kg is None:
+            await message.answer(
+                "⚠️ Miqdorni to'g'ri kiriting (masalan: 2000 kg yoki 2 tonna).",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        if qty_kg < 2000:
+            await message.answer(
+                "⚠️ Minimal buyurtma 2 tonna (2000 kg). Iltimos, qayta kiriting.",
+                reply_markup=cancel_keyboard(),
             )
             return
         await state.update_data(quantity=message.text)
