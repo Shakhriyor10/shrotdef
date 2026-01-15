@@ -267,7 +267,8 @@ def format_order_message(order, include_id: bool = True, include_address: bool =
             f"👤 Ism: {person}",
             f"📦 Mahsulot: {escape(order['product_name'])}",
             f"⚖️ Miqdor: {escape(order['quantity'])}",
-            f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+            f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))} сум",
+            f"💵 Jami: {escape(format_deal_price(order['quantity'], price_per_kg))}",
             f"📞 Telefon: {escape(order['phone'] or 'Kiritilmagan')}",
         ]
     )
@@ -312,7 +313,8 @@ def format_user_order_message(order) -> str:
         f"🆔 ID: {escape(str(order['id']))}",
         f"📦 Mahsulot: {escape(order['product_name'])}",
         f"⚖️ Miqdor: {escape(order['quantity'])}",
-        f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))}",
+        f"💰 Narx (1 kg, ariza vaqti): {escape(format_price(price_per_kg))} сум",
+        f"💵 Jami: {escape(format_deal_price(order['quantity'], price_per_kg))}",
         f"📍 Manzil: {escape(order['address'])}",
         f"📌 Holati: {escape(status_label)}",
         f"📅 Sana: {created_at}",
@@ -357,6 +359,14 @@ def format_price(value: Optional[float]) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
+def format_money_with_commas(value: Optional[float]) -> str:
+    if value is None:
+        return "⚠️ Kiritilmagan"
+    if abs(value - round(value)) < 1e-9:
+        return f"{int(round(value)):,}"
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
 def parse_quantity_to_kg(value: str) -> Optional[float]:
     cleaned = value.strip().lower()
     match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", cleaned)
@@ -368,20 +378,30 @@ def parse_quantity_to_kg(value: str) -> Optional[float]:
     return number
 
 
+def parse_quantity_to_tons(value: str) -> Optional[float]:
+    cleaned = value.strip().lower()
+    if "kg" in cleaned or "кг" in cleaned:
+        return None
+    match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", cleaned)
+    if not match:
+        return None
+    return float(match.group(1).replace(",", "."))
+
+
 def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
     if price_per_kg is None:
         return "⚠️ Hisoblab bo'lmadi"
     qty_kg = parse_quantity_to_kg(quantity)
     if qty_kg is None:
         return "⚠️ Hisoblab bo'lmadi"
-    return format_price(qty_kg * price_per_kg)
+    return f"{format_money_with_commas(qty_kg * price_per_kg)} сум"
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
     photos = db.get_product_photos(product["id"])
     caption = (
         f"📦 Mahsulot: {product['name']}\n"
-        f"💰 Narxi (1 kg): {product['price_per_kg']}\n"
+        f"💰 Narxi (1 kg): {product['price_per_kg']} сум\n"
         f"🗒 Tavsif: {product['description'] or 'Kiritilmagan'}"
     )
     if photos:
@@ -575,7 +595,8 @@ async def main() -> None:
         product_id = int(callback.data.split(":", 1)[1])
         await state.update_data(product_id=product_id)
         await callback.message.answer(
-            "⚖️ Necha kg yoki necha tonna kerak? (masalan: 150 kg yoki 2 tonna)",
+            "⚖️ Necha tonna kerak? (masalan: 2.3 yoki 2,3)\n"
+            "📌 Minimal buyurtma: 2 tonna.",
             reply_markup=cancel_keyboard(),
         )
         await state.set_state(OrderStates.quantity)
@@ -589,7 +610,21 @@ async def main() -> None:
                 "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
             )
             return
-        await state.update_data(quantity=message.text)
+        qty_tons = parse_quantity_to_tons(message.text or "")
+        if qty_tons is None:
+            await message.answer(
+                "⚠️ Miqdorni to'g'ri kiriting (faqat tonna, masalan: 2.3 yoki 2,3).",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        if qty_tons < 2:
+            await message.answer(
+                "⚠️ Minimal buyurtma 2 tonna. Iltimos, qayta kiriting.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        normalized_quantity = f"{format_price(qty_tons)} tonna"
+        await state.update_data(quantity=normalized_quantity)
         await message.answer(
             "📍 Manzilni kiriting yoki lokatsiyani yuboring.",
             reply_markup=order_address_keyboard(),
