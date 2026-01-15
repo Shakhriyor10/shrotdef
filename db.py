@@ -33,7 +33,8 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 price_per_kg REAL NOT NULL,
-                description TEXT
+                description TEXT,
+                is_deleted INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -100,6 +101,12 @@ def init_db() -> None:
         try:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN activity_count INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "ALTER TABLE products ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0"
             )
         except sqlite3.OperationalError:
             pass
@@ -244,14 +251,27 @@ def set_product_photos(product_id: int, file_ids: list[str]) -> None:
 
 def list_products() -> Iterable[sqlite3.Row]:
     with get_connection() as conn:
-        return conn.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
+        return conn.execute(
+            "SELECT * FROM products WHERE is_deleted = 0 ORDER BY id DESC"
+        ).fetchall()
 
 
 def get_product(product_id: int) -> Optional[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
-            "SELECT * FROM products WHERE id = ?", (product_id,)
+            "SELECT * FROM products WHERE id = ? AND is_deleted = 0",
+            (product_id,),
         ).fetchone()
+
+
+def delete_product(product_id: int) -> bool:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM product_photos WHERE product_id = ?", (product_id,))
+        cur = conn.execute(
+            "UPDATE products SET is_deleted = 1 WHERE id = ? AND is_deleted = 0",
+            (product_id,),
+        )
+        return cur.rowcount > 0
 
 
 def get_product_photos(product_id: int) -> list[str]:
