@@ -370,6 +370,16 @@ def parse_quantity_to_kg(value: str) -> Optional[float]:
     return number
 
 
+def parse_quantity_to_tons(value: str) -> Optional[float]:
+    cleaned = value.strip().lower()
+    if "kg" in cleaned or "кг" in cleaned:
+        return None
+    match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", cleaned)
+    if not match:
+        return None
+    return float(match.group(1).replace(",", "."))
+
+
 def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
     if price_per_kg is None:
         return "⚠️ Hisoblab bo'lmadi"
@@ -577,7 +587,7 @@ async def main() -> None:
         product_id = int(callback.data.split(":", 1)[1])
         await state.update_data(product_id=product_id)
         await callback.message.answer(
-            "⚖️ Necha kg yoki necha tonna kerak? (masalan: 2000 kg yoki 2 tonna)\n"
+            "⚖️ Necha tonna kerak? (masalan: 2.3 yoki 2,3)\n"
             "📌 Minimal buyurtma: 2 tonna.",
             reply_markup=cancel_keyboard(),
         )
@@ -592,20 +602,21 @@ async def main() -> None:
                 "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
             )
             return
-        qty_kg = parse_quantity_to_kg(message.text or "")
-        if qty_kg is None:
+        qty_tons = parse_quantity_to_tons(message.text or "")
+        if qty_tons is None:
             await message.answer(
-                "⚠️ Miqdorni to'g'ri kiriting (masalan: 2000 kg yoki 2 tonna).",
+                "⚠️ Miqdorni to'g'ri kiriting (faqat tonna, masalan: 2.3 yoki 2,3).",
                 reply_markup=cancel_keyboard(),
             )
             return
-        if qty_kg < 2000:
+        if qty_tons < 2:
             await message.answer(
-                "⚠️ Minimal buyurtma 2 tonna (2000 kg). Iltimos, qayta kiriting.",
+                "⚠️ Minimal buyurtma 2 tonna. Iltimos, qayta kiriting.",
                 reply_markup=cancel_keyboard(),
             )
             return
-        await state.update_data(quantity=message.text)
+        normalized_quantity = f"{format_price(qty_tons)} tonna"
+        await state.update_data(quantity=normalized_quantity)
         await message.answer(
             "📍 Manzilni kiriting yoki lokatsiyani yuboring.",
             reply_markup=order_address_keyboard(),
