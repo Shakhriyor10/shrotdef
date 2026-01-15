@@ -459,15 +459,14 @@ async def ensure_user_registered(message: types.Message) -> bool:
     return True
 
 
-def format_support_user_details(user: types.User) -> str:
-    username = f"@{user.username}" if user.username else "username yo'q"
-    full_name = " ".join(part for part in [user.first_name, user.last_name] if part)
-    name_display = full_name if full_name else "Noma'lum foydalanuvchi"
+def format_support_user_details(phone: Optional[str], text: Optional[str]) -> str:
+    phone_display = phone or "Telefon yo'q"
+    user_text = text.strip() if text else "—"
     return (
         "🆘 Yangi qo'llab-quvvatlash so'rovi\n"
-        f"👤 Foydalanuvchi: {name_display}\n"
-        f"🔗 Username: {username}\n"
-        f"🆔 ID: {user.id}\n"
+        "👤 Foydalanuvchi:\n"
+        f"📞 Telefon: {phone_display}\n\n"
+        f"Text: {user_text}\n\n"
         "↩️ Javob berish uchun shu xabarga reply qiling."
     )
 
@@ -815,20 +814,41 @@ async def main() -> None:
             )
             await state.clear()
             return
+        user = db.get_user_by_tg_id(message.from_user.id)
+        phone = user["phone"] if user else None
+        support_text = format_support_user_details(
+            phone,
+            message.text or message.caption,
+        )
         success = 0
         for group_id in GROUP_LIST:
             try:
-                detail_message = await message.bot.send_message(
-                    group_id,
-                    format_support_user_details(message.from_user),
-                )
-                forwarded = await message.bot.copy_message(
-                    chat_id=group_id,
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id,
-                )
-                support_reply_map[(group_id, detail_message.message_id)] = message.from_user.id
-                support_reply_map[(group_id, forwarded.message_id)] = message.from_user.id
+                sent_message: Optional[types.Message] = None
+                if message.photo:
+                    sent_message = await message.bot.send_photo(
+                        chat_id=group_id,
+                        photo=message.photo[-1].file_id,
+                        caption=support_text,
+                    )
+                elif message.video:
+                    sent_message = await message.bot.send_video(
+                        chat_id=group_id,
+                        video=message.video.file_id,
+                        caption=support_text,
+                    )
+                elif message.document:
+                    sent_message = await message.bot.send_document(
+                        chat_id=group_id,
+                        document=message.document.file_id,
+                        caption=support_text,
+                    )
+                else:
+                    sent_message = await message.bot.send_message(
+                        group_id,
+                        support_text,
+                    )
+                if sent_message:
+                    support_reply_map[(group_id, sent_message.message_id)] = message.from_user.id
                 success += 1
             except Exception:
                 continue
