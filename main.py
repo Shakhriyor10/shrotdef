@@ -28,14 +28,14 @@ INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumki
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
 """
 CONTACT_TEXT = """Axborot hamkorlik masalalari uchun:
-☎️ Telefon: +99895 530 99 99
-☎️ Telefon: +99895 330 99 99
+☎️ Telefon: +998955309999
+☎️ Telefon: +998953309999
 📍 Manzil: Сам.Тайлок.Курганча ЗАВОД ТОННИ ГРИНН
 """
 NEWS_TEXT = """Barcha yangiliklarni kuzatib boring"""
 
 BTN_PRODUCTS = "📦 Mahsulotlar"
-BTN_MY_ORDERS = "📦 Mening buyurtmalarim"
+BTN_MY_ORDERS = "📄 Mening buyurtmalarim"
 BTN_INFO = "ℹ️ Ma'lumot"
 BTN_CONTACT = "📞 Aloqa"
 BTN_NEWS = "📰 Yangiliklar"
@@ -116,8 +116,7 @@ class ActivityMiddleware(BaseMiddleware):
 def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text=BTN_PRODUCTS)],
-        [KeyboardButton(text=BTN_INFO), KeyboardButton(text=BTN_CONTACT)],
-        [KeyboardButton(text=BTN_NEWS)],
+        [KeyboardButton(text=BTN_CONTACT), KeyboardButton(text=BTN_NEWS)],
     ]
     if not is_admin:
         rows.insert(1, [KeyboardButton(text=BTN_MY_ORDERS)])
