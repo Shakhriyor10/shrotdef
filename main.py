@@ -49,6 +49,7 @@ BTN_FINISH = "✅ Tugatish"
 BTN_CANCEL = "❌ Bekor qilish"
 BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
 BTN_SUPPORT = "🆘 Qo'llab-quvvatlash"
+BTN_SKIP_DESCRIPTION = "⏭ Tavsifni o'tkazish"
 
 
 class OrderStates(StatesGroup):
@@ -148,6 +149,13 @@ def add_product_photos_keyboard() -> ReplyKeyboardMarkup:
 def cancel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=BTN_CANCEL)]],
+        resize_keyboard=True,
+    )
+
+
+def description_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BTN_SKIP_DESCRIPTION)], [KeyboardButton(text=BTN_CANCEL)]],
         resize_keyboard=True,
     )
 
@@ -1260,7 +1268,10 @@ async def main() -> None:
             await message.answer("⚠️ Narxni to'g'ri kiriting (masalan: 12000).")
             return
         await state.update_data(price=price)
-        await message.answer("🗒 Tavsifini kiriting.", reply_markup=cancel_keyboard())
+        await message.answer(
+            "🗒 Tavsifini kiriting yoki o'tkazib yuboring.",
+            reply_markup=description_keyboard(),
+        )
         await state.set_state(AddProductStates.description)
 
     @dp.message(AddProductStates.description)
@@ -1268,7 +1279,10 @@ async def main() -> None:
         if is_cancel_message(message):
             await cancel_admin_action(message, state)
             return
-        await state.update_data(description=message.text)
+        if message.text and message.text.strip() == BTN_SKIP_DESCRIPTION:
+            await state.update_data(description=None)
+        else:
+            await state.update_data(description=message.text)
         await message.answer(
             "🖼 Agar rasm bo'lsa yuboring (1 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
             reply_markup=add_product_photos_keyboard(),

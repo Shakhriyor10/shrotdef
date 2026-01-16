@@ -191,7 +191,7 @@ def list_users() -> Iterable[sqlite3.Row]:
         return conn.execute("SELECT * FROM users").fetchall()
 
 
-def add_product(name: str, price_per_kg: float, description: str) -> int:
+def add_product(name: str, price_per_kg: float, description: Optional[str]) -> int:
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO products (name, price_per_kg, description) VALUES (?, ?, ?)",
