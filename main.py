@@ -116,8 +116,7 @@ class ActivityMiddleware(BaseMiddleware):
 def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text=BTN_PRODUCTS)],
-        [KeyboardButton(text=BTN_INFO), KeyboardButton(text=BTN_CONTACT)],
-        [KeyboardButton(text=BTN_NEWS)],
+        [KeyboardButton(text=BTN_CONTACT), KeyboardButton(text=BTN_NEWS)],
     ]
     if not is_admin:
         rows.insert(1, [KeyboardButton(text=BTN_MY_ORDERS)])
