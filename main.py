@@ -45,10 +45,11 @@ BTN_BROADCAST = "📣 Xabar tarqatish"
 BTN_ADD_PRODUCT = "➕ Mahsulot qo'shish"
 BTN_EDIT_PRODUCT = "✏️ Mahsulotni tahrirlash"
 BTN_SEND_PHONE = "📲 Telefon raqamni yuborish"
-BTN_FINISH = "✅ Tugatish"
 BTN_CANCEL = "❌ Bekor qilish"
 BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
 BTN_SUPPORT = "🆘 Qo'llab-quvvatlash"
+BTN_SKIP_DESCRIPTION = "⏭ O'tkazish"
+BTN_SKIP_PHOTOS = "⏭ O'tkazish"
 
 
 class OrderStates(StatesGroup):
@@ -138,7 +139,7 @@ def contact_keyboard() -> ReplyKeyboardMarkup:
 def add_product_photos_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=BTN_FINISH), KeyboardButton(text=BTN_PRODUCTS)],
+            [KeyboardButton(text=BTN_SKIP_PHOTOS)],
             [KeyboardButton(text=BTN_CANCEL)],
         ],
         resize_keyboard=True,
@@ -148,6 +149,13 @@ def add_product_photos_keyboard() -> ReplyKeyboardMarkup:
 def cancel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=BTN_CANCEL)]],
+        resize_keyboard=True,
+    )
+
+
+def description_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BTN_SKIP_DESCRIPTION)], [KeyboardButton(text=BTN_CANCEL)]],
         resize_keyboard=True,
     )
 
@@ -1260,7 +1268,10 @@ async def main() -> None:
             await message.answer("⚠️ Narxni to'g'ri kiriting (masalan: 12000).")
             return
         await state.update_data(price=price)
-        await message.answer("🗒 Tavsifini kiriting.", reply_markup=cancel_keyboard())
+        await message.answer(
+            "🗒 Tavsifini kiriting yoki o'tkazib yuboring.",
+            reply_markup=description_keyboard(),
+        )
         await state.set_state(AddProductStates.description)
 
     @dp.message(AddProductStates.description)
@@ -1268,9 +1279,12 @@ async def main() -> None:
         if is_cancel_message(message):
             await cancel_admin_action(message, state)
             return
-        await state.update_data(description=message.text)
+        if message.text and message.text.strip() == BTN_SKIP_DESCRIPTION:
+            await state.update_data(description=None)
+        else:
+            await state.update_data(description=message.text)
         await message.answer(
-            "🖼 Agar rasm bo'lsa yuboring (1 dona). Tugatish uchun 'Tugatish' tugmasini bosing.",
+            "🖼 Agar rasm bo'lsa yuboring (1 dona). O'tkazish uchun 'O'tkazish' tugmasini bosing.",
             reply_markup=add_product_photos_keyboard(),
         )
         await state.set_state(AddProductStates.photos)
@@ -1282,11 +1296,7 @@ async def main() -> None:
         if is_cancel_message(message):
             await cancel_admin_action(message, state)
             return
-        if message.text and message.text.strip() == BTN_PRODUCTS:
-            await state.clear()
-            await show_products(message)
-            return
-        if message.text and message.text.strip() == BTN_FINISH:
+        if message.text and message.text.strip() == BTN_SKIP_PHOTOS:
             product_id = db.add_product(data["name"], data["price"], data["description"])
             if photos:
                 db.set_product_photos(product_id, photos[:1])
@@ -1295,7 +1305,7 @@ async def main() -> None:
             return
         if not message.photo:
             await message.answer(
-                "📷 Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                "📷 Iltimos, rasm yuboring yoki 'O'tkazish' tugmasini bosing.",
                 reply_markup=add_product_photos_keyboard(),
             )
             return
@@ -1352,7 +1362,7 @@ async def main() -> None:
         await state.update_data(field=field)
         if field == "photos":
             await callback.message.answer(
-                "🖼 Yangi rasmni yuboring (1 dona). Tugatish: 'Tugatish' tugmasi.",
+                "🖼 Yangi rasmni yuboring (1 dona). Tugatish: 'O'tkazish' tugmasi.",
                 reply_markup=add_product_photos_keyboard(),
             )
             await state.set_state(EditProductStates.photos)
@@ -1389,12 +1399,7 @@ async def main() -> None:
         if is_cancel_message(message):
             await cancel_admin_action(message, state)
             return
-        if message.text and message.text.strip() == BTN_PRODUCTS:
-            db.set_product_photos(data["product_id"], [])
-            await state.clear()
-            await show_products(message)
-            return
-        if message.text and message.text.strip() == BTN_FINISH:
+        if message.text and message.text.strip() == BTN_SKIP_PHOTOS:
             if photos:
                 db.set_product_photos(data["product_id"], photos[:1])
             else:
@@ -1404,7 +1409,7 @@ async def main() -> None:
             return
         if not message.photo:
             await message.answer(
-                "📷 Iltimos, rasm yuboring yoki 'Tugatish' tugmasini bosing.",
+                "📷 Iltimos, rasm yuboring yoki 'O'tkazish' tugmasini bosing.",
                 reply_markup=add_product_photos_keyboard(),
             )
             return
