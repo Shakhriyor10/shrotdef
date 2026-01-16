@@ -27,11 +27,14 @@ GROUP_LIST = {-1003493973816,}
 INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
 """
-CONTACT_TEXT = """📞 Aloqa uchun:
-☎️ Telefon: +998 90 000 00 00
-📍 Manzil: Toshkent shahar
+CONTACT_TEXT = """Axborot hamkorlik masalalari uchun:
+☎️ Telefon: +99895 530 99 99
+☎️ Telefon: +99895 330 99 99
+📍 Manzil: Сам.Тайлок.Курганча ЗАВОД ТОННИ ГРИНН
 """
-NEWS_TEXT = """📰 Yangiliklar hozircha mavjud emas."""
+NEWS_TEXT = """Barcha yangiliklarni kuzatib boring
+https://t.me/shrotsavdo
+"""
 
 BTN_PRODUCTS = "📦 Mahsulotlar"
 BTN_MY_ORDERS = "📦 Mening buyurtmalarim"
@@ -93,6 +96,8 @@ class BroadcastPayload:
 
 media_group_buffer: dict[int, dict[str, object]] = {}
 support_reply_map: dict[tuple[int, int], int] = {}
+support_media_group_reject: set[tuple[int, str]] = set()
+admin_media_group_reject: set[tuple[int, str]] = set()
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -459,15 +464,18 @@ async def ensure_user_registered(message: types.Message) -> bool:
     return True
 
 
-def format_support_user_details(user: types.User) -> str:
-    username = f"@{user.username}" if user.username else "username yo'q"
-    full_name = " ".join(part for part in [user.first_name, user.last_name] if part)
-    name_display = full_name if full_name else "Noma'lum foydalanuvchi"
+def format_support_user_details(
+    name_display: str,
+    phone: Optional[str],
+    text: Optional[str],
+) -> str:
+    phone_display = phone or "Telefon yo'q"
+    user_text = text.strip() if text else "—"
     return (
         "🆘 Yangi qo'llab-quvvatlash so'rovi\n"
         f"👤 Foydalanuvchi: {name_display}\n"
-        f"🔗 Username: {username}\n"
-        f"🆔 ID: {user.id}\n"
+        f"📞 Telefon: {phone_display}\n\n"
+        f"Text: {user_text}\n\n"
         "↩️ Javob berish uchun shu xabarga reply qiling."
     )
 
@@ -808,6 +816,17 @@ async def main() -> None:
                 reply_markup=user_keyboard(is_admin(message.from_user.id)),
             )
             return
+        if message.media_group_id:
+            reject_key = (message.from_user.id, message.media_group_id)
+            if reject_key in support_media_group_reject:
+                return
+            support_media_group_reject.add(reject_key)
+            await message.answer(
+                "⚠️ Iltimos, faqat bitta rasm yuboring yoki faqat matn yuboring.",
+                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            )
+            await state.clear()
+            return
         if not GROUP_LIST:
             await message.answer(
                 "⚠️ Hozircha qo'llab-quvvatlash guruhi mavjud emas.",
@@ -815,20 +834,46 @@ async def main() -> None:
             )
             await state.clear()
             return
+        user = db.get_user_by_tg_id(message.from_user.id)
+        phone = user["phone"] if user else None
+        full_name = " ".join(
+            part for part in [message.from_user.first_name, message.from_user.last_name] if part
+        )
+        name_display = full_name if full_name else "Noma'lum foydalanuvchi"
+        support_text = format_support_user_details(
+            name_display,
+            phone,
+            message.text or message.caption,
+        )
         success = 0
         for group_id in GROUP_LIST:
             try:
-                detail_message = await message.bot.send_message(
-                    group_id,
-                    format_support_user_details(message.from_user),
-                )
-                forwarded = await message.bot.copy_message(
-                    chat_id=group_id,
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id,
-                )
-                support_reply_map[(group_id, detail_message.message_id)] = message.from_user.id
-                support_reply_map[(group_id, forwarded.message_id)] = message.from_user.id
+                sent_message: Optional[types.Message] = None
+                if message.photo:
+                    sent_message = await message.bot.send_photo(
+                        chat_id=group_id,
+                        photo=message.photo[-1].file_id,
+                        caption=support_text,
+                    )
+                elif message.video:
+                    sent_message = await message.bot.send_video(
+                        chat_id=group_id,
+                        video=message.video.file_id,
+                        caption=support_text,
+                    )
+                elif message.document:
+                    sent_message = await message.bot.send_document(
+                        chat_id=group_id,
+                        document=message.document.file_id,
+                        caption=support_text,
+                    )
+                else:
+                    sent_message = await message.bot.send_message(
+                        group_id,
+                        support_text,
+                    )
+                if sent_message:
+                    support_reply_map[(group_id, sent_message.message_id)] = message.from_user.id
                 success += 1
             except Exception:
                 continue
@@ -1488,6 +1533,15 @@ async def main() -> None:
     @dp.message(F.reply_to_message)
     async def support_admin_reply(message: types.Message) -> None:
         if message.chat.id not in GROUP_LIST or not is_admin(message.from_user.id):
+            return
+        if message.media_group_id:
+            reject_key = (message.chat.id, message.media_group_id)
+            if reject_key in admin_media_group_reject:
+                return
+            admin_media_group_reject.add(reject_key)
+            await message.answer(
+                "⚠️ Iltimos, faqat bitta rasm yuboring yoki faqat matn yuboring.",
+            )
             return
         reply_to = message.reply_to_message
         if not reply_to:
