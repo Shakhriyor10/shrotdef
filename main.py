@@ -555,7 +555,7 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
-    token = "8396669139:AAFvr8gWi7uXDMwPLBePF9NmYf16wsHmtPU"
+    token = "8421280924:AAEEYP9drCAJHBD1fSDaINjal0_ZV3dCDos"
     if not token:
         raise RuntimeError("BOT_TOKEN is required")
 
