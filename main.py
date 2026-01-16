@@ -32,9 +32,7 @@ CONTACT_TEXT = """Axborot hamkorlik masalalari uchun:
 ☎️ Telefon: +99895 330 99 99
 📍 Manzil: Сам.Тайлок.Курганча ЗАВОД ТОННИ ГРИНН
 """
-NEWS_TEXT = """Barcha yangiliklarni kuzatib boring
-https://t.me/shrotsavdo
-"""
+NEWS_TEXT = """Barcha yangiliklarni kuzatib boring"""
 
 BTN_PRODUCTS = "📦 Mahsulotlar"
 BTN_MY_ORDERS = "📦 Mening buyurtmalarim"
@@ -204,6 +202,15 @@ def edit_fields_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🗒 Tavsif", callback_data="field:description")],
             [InlineKeyboardButton(text="🖼 Rasmlar", callback_data="field:photos")],
             [InlineKeyboardButton(text="🗑 O'chirish", callback_data="field:delete")],
+        ]
+    )
+
+
+def news_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Telegram", url="https://t.me/shrotsavdo")],
+            [InlineKeyboardButton(text="Instagram", url="https://instagram.com/shrotsavdo")],
         ]
     )
 
@@ -794,7 +801,7 @@ async def main() -> None:
     async def show_news(message: types.Message) -> None:
         if not await ensure_user_registered(message):
             return
-        await message.answer(NEWS_TEXT)
+        await message.answer(NEWS_TEXT, reply_markup=news_inline_keyboard())
 
     @dp.message(F.text == BTN_SUPPORT)
     async def support_start(message: types.Message, state: FSMContext) -> None:
