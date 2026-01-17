@@ -667,6 +667,10 @@ def build_report_html(
         flex-direction: column;
         align-items: stretch;
       }}
+      .search-input {{
+        font-size: 13px;
+        padding: 8px 10px;
+      }}
       .sort-buttons {{
         display: flex;
       }}
