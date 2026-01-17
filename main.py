@@ -45,6 +45,7 @@ BTN_ORDERS_LIST = "🧾 Buyurtmalar ro'yxati"
 BTN_BROADCAST = "📣 Xabar tarqatish"
 BTN_ADD_PRODUCT = "➕ Mahsulot qo'shish"
 BTN_EDIT_PRODUCT = "✏️ Mahsulotni tahrirlash"
+BTN_REPORTS = "📑 Hisobotlar"
 BTN_SEND_PHONE = "📲 Telefon raqamni yuborish"
 BTN_CANCEL = "❌ Bekor qilish"
 BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
@@ -91,6 +92,11 @@ class SupportStates(StatesGroup):
 class BlockUserStates(StatesGroup):
     action = State()
     phone = State()
+
+
+class ReportStates(StatesGroup):
+    start_date = State()
+    end_date = State()
 
 
 @dataclass
@@ -149,6 +155,7 @@ def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
         rows.append([KeyboardButton(text=BTN_SUPPORT)])
     if is_admin:
         rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
+        rows.append([KeyboardButton(text=BTN_REPORTS)])
         rows.append([KeyboardButton(text=BTN_BROADCAST)])
         rows.append([KeyboardButton(text=BTN_BLOCK_USERS)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -459,6 +466,297 @@ def format_money_with_commas(value: Optional[float]) -> str:
     if abs(value - round(value)) < 1e-9:
         return f"{int(round(value)):,}"
     return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def parse_report_date(value: str) -> Optional[datetime]:
+    cleaned = value.strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(cleaned, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def build_report_html(
+    rows: list[sqlite3.Row],
+    start_date: datetime,
+    end_date: datetime,
+) -> str:
+    per_user: dict[int, dict[str, object]] = {}
+    total_sum = 0.0
+    for row in rows:
+        qty_kg = parse_quantity_to_kg(row["quantity"])
+        price_per_kg = row["order_price_per_kg"] or row["product_price_per_kg"]
+        if qty_kg is None or price_per_kg is None:
+            continue
+        amount = qty_kg * price_per_kg
+        total_sum += amount
+        user_entry = per_user.setdefault(
+            row["user_id"],
+            {
+                "name": format_user_contact(row["first_name"], row["last_name"], row["phone"]),
+                "count": 0,
+                "amount": 0.0,
+            },
+        )
+        user_entry["count"] += 1
+        user_entry["amount"] += amount
+    rows_html = []
+    for idx, (_, entry) in enumerate(
+        sorted(per_user.items(), key=lambda item: item[1]["amount"], reverse=True),
+        start=1,
+    ):
+        rows_html.append(
+            "<tr>"
+            f"<td data-label=\"#\">{idx}</td>"
+            f"<td data-label=\"Mijoz\" data-key=\"name\" data-value=\"{escape(entry['name'])}\">"
+            f"{escape(entry['name'])}"
+            "</td>"
+            "<td data-label=\"Buyurtmalar soni\" data-key=\"count\" "
+            f"data-value=\"{entry['count']}\" style=\"text-align:center;\">"
+            f"{entry['count']}"
+            "</td>"
+            "<td data-label=\"Jami summa (so'm)\" data-key=\"amount\" "
+            f"data-value=\"{entry['amount']}\" style=\"text-align:right;\">"
+            f"{escape(format_money_with_commas(entry['amount']))}"
+            "</td>"
+            "</tr>"
+        )
+    if not rows_html:
+        rows_html.append(
+            "<tr><td colspan=\"4\" style=\"text-align:center; padding: 16px;\">"
+            "Ma'lumot topilmadi"
+            "</td></tr>"
+        )
+    period_label = f"{start_date.strftime('%Y-%m-%d')} — {end_date.strftime('%Y-%m-%d')}"
+    total_label = escape(format_money_with_commas(total_sum))
+    return f"""<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hisobot</title>
+  <style>
+    body {{
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f5f7fb;
+      color: #1f2a44;
+      margin: 0;
+      padding: 24px;
+    }}
+    * {{
+      box-sizing: border-box;
+    }}
+    .card {{
+      max-width: 900px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+      padding: 24px;
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 24px;
+    }}
+    .period {{
+      color: #64748b;
+      margin-bottom: 16px;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }}
+    th, td {{
+      padding: 12px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 14px;
+    }}
+    th {{
+      text-align: left;
+      background: #f1f5f9;
+      color: #475569;
+    }}
+    th.sortable {{
+      cursor: pointer;
+      user-select: none;
+    }}
+    .toolbar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 12px 0 4px;
+    }}
+    .sort-buttons {{
+      display: none;
+      gap: 8px;
+      flex-wrap: wrap;
+    }}
+    .sort-button {{
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      font-size: 12px;
+      cursor: pointer;
+    }}
+    .search-input {{
+      flex: 1 1 240px;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      font-size: 14px;
+    }}
+    .hint {{
+      font-size: 12px;
+      color: #64748b;
+    }}
+    td[data-label]::before {{
+      content: attr(data-label);
+      display: none;
+      font-weight: 600;
+      color: #475569;
+    }}
+    .total {{
+      margin-top: 20px;
+      padding: 16px;
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 12px;
+      text-align: right;
+      font-weight: 600;
+    }}
+    @media (max-width: 600px) {{
+      body {{
+        padding: 16px;
+      }}
+      .card {{
+        padding: 16px;
+      }}
+      table {{
+        border: 0;
+      }}
+      thead {{
+        display: none;
+      }}
+      tr {{
+        display: block;
+        margin-bottom: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 8px;
+      }}
+      td {{
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 6px;
+        border: none;
+      }}
+      td[data-label]::before {{
+        display: block;
+      }}
+      .total {{
+        text-align: left;
+      }}
+      .toolbar {{
+        flex-direction: column;
+        align-items: stretch;
+      }}
+      .search-input {{
+        font-size: 12px;
+        padding: 6px 8px;
+        line-height: 1.2;
+      }}
+      .sort-buttons {{
+        display: flex;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Hisobot</h1>
+    <div class="period">Davr: {escape(period_label)}</div>
+    <div class="toolbar">
+      <input id="searchInput" class="search-input" type="text" placeholder="Qidirish: mijoz, soni yoki summa" />
+      <div class="hint">Sarlavhalarni bosib saralang (Mijoz, Buyurtmalar soni, Jami summa)</div>
+    </div>
+    <div class="sort-buttons" aria-label="Saralash tugmalari">
+      <button type="button" class="sort-button" data-sort="name">Mijoz</button>
+      <button type="button" class="sort-button" data-sort="count">Buyurtmalar soni</button>
+      <button type="button" class="sort-button" data-sort="amount">Jami summa</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th class="sortable" data-sort="name">Mijoz</th>
+          <th class="sortable" data-sort="count" style="text-align:center;">Buyurtmalar soni</th>
+          <th class="sortable" data-sort="amount" style="text-align:right;">Jami summa (so'm)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(rows_html)}
+      </tbody>
+    </table>
+    <div class="total">Umumiy summa: {total_label} so'm</div>
+  </div>
+  <script>
+    const tbody = document.querySelector("tbody");
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const sortState = {{ name: "desc", count: "asc", amount: "asc" }};
+
+    const getCellValue = (row, key) => {{
+      const cell = row.querySelector(`[data-key="${{key}}"]`);
+      if (!cell) return "";
+      if (key === "name") {{
+        return (cell.dataset.value || cell.textContent).trim().toLowerCase();
+      }}
+      const num = parseFloat(cell.dataset.value || "0");
+      return Number.isNaN(num) ? 0 : num;
+    }};
+
+    const sortRows = (key) => {{
+      const direction = sortState[key] === "asc" ? "desc" : "asc";
+      sortState[key] = direction;
+      rows.sort((a, b) => {{
+        const av = getCellValue(a, key);
+        const bv = getCellValue(b, key);
+        if (key === "name") {{
+          if (av < bv) return direction === "asc" ? -1 : 1;
+          if (av > bv) return direction === "asc" ? 1 : -1;
+          return 0;
+        }}
+        return direction === "asc" ? av - bv : bv - av;
+      }});
+      rows.forEach((row) => tbody.appendChild(row));
+    }};
+
+    const bindSort = (selector) => {{
+      document.querySelectorAll(selector).forEach((element) => {{
+        element.addEventListener("click", () => sortRows(element.dataset.sort));
+      }});
+    }};
+
+    bindSort("th[data-sort]");
+    bindSort("button[data-sort]");
+
+    const searchInput = document.getElementById("searchInput");
+    searchInput.addEventListener("input", (event) => {{
+      const query = event.target.value.trim().toLowerCase();
+      rows.forEach((row) => {{
+        const rowText = row.textContent.toLowerCase();
+        row.style.display = rowText.includes(query) ? "" : "none";
+      }});
+    }});
+  </script>
+</body>
+</html>"""
 
 
 def parse_quantity_to_kg(value: str) -> Optional[float]:
@@ -1062,6 +1360,77 @@ async def main() -> None:
             "🚀 Botdan ko'p foydalanadigan foydalanuvchilar:\n"
             f"{active_users_text}"
         )
+
+    @dp.message(F.text == BTN_REPORTS)
+    async def report_start(message: types.Message, state: FSMContext) -> None:
+        if not is_admin(message.from_user.id):
+            return
+        await state.set_state(ReportStates.start_date)
+        await message.answer(
+            "📅 Hisobot uchun boshlanish sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).",
+            reply_markup=cancel_keyboard(),
+        )
+
+    @dp.message(ReportStates.start_date)
+    async def report_start_date(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        start_date = parse_report_date(message.text or "")
+        if not start_date:
+            await message.answer(
+                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31 yoki 31.01.2024).",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        await state.update_data(report_start=start_date.strftime("%Y-%m-%d"))
+        await state.set_state(ReportStates.end_date)
+        await message.answer(
+            "📅 Hisobot uchun tugash sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).",
+            reply_markup=cancel_keyboard(),
+        )
+
+    @dp.message(ReportStates.end_date)
+    async def report_end_date(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        end_date = parse_report_date(message.text or "")
+        if not end_date:
+            await message.answer(
+                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31 yoki 31.01.2024).",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        data = await state.get_data()
+        start_date = datetime.strptime(data["report_start"], "%Y-%m-%d")
+        if end_date < start_date:
+            await message.answer(
+                "⚠️ Tugash sanasi boshlanish sanasidan oldin bo'lmasligi kerak.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        rows = list(
+            db.list_orders_for_report(
+                start_date.strftime("%Y-%m-%d"),
+                end_date.strftime("%Y-%m-%d"),
+            )
+        )
+        report_html = build_report_html(rows, start_date, end_date)
+        timestamp = int(datetime.utcnow().timestamp())
+        file_path = f"report_{message.from_user.id}_{timestamp}.html"
+        with open(file_path, "w", encoding="utf-8") as handle:
+            handle.write(report_html)
+        try:
+            await message.answer_document(
+                types.FSInputFile(file_path),
+                caption="📑 Hisobot tayyor.",
+                reply_markup=user_keyboard(True),
+            )
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        await state.clear()
 
     @dp.message(F.text == BTN_ORDERS_LIST)
     async def show_orders_summary(message: types.Message) -> None:

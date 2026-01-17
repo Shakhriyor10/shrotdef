@@ -460,6 +460,33 @@ def list_orders_with_details(
         return conn.execute(query, params).fetchall()
 
 
+def list_orders_for_report(
+    start_at: str,
+    end_at: str,
+) -> Iterable[sqlite3.Row]:
+    query = """
+        SELECT
+            orders.id,
+            orders.quantity,
+            orders.created_at,
+            orders.order_price_per_kg,
+            users.id AS user_id,
+            users.first_name,
+            users.last_name,
+            users.phone,
+            products.price_per_kg AS product_price_per_kg
+        FROM orders
+        JOIN users ON orders.user_id = users.id
+        JOIN products ON orders.product_id = products.id
+        WHERE orders.status = 'closed'
+          AND date(COALESCE(orders.closed_at, orders.created_at)) >= date(?)
+          AND date(COALESCE(orders.closed_at, orders.created_at)) <= date(?)
+        ORDER BY orders.created_at ASC
+    """
+    with get_connection() as conn:
+        return conn.execute(query, (start_at, end_at)).fetchall()
+
+
 def get_order_with_details(order_id: int) -> Optional[sqlite3.Row]:
     query = """
         SELECT
