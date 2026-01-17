@@ -7,7 +7,7 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from html import escape
-from datetime import datetime, time
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
 
@@ -469,10 +469,13 @@ def format_money_with_commas(value: Optional[float]) -> str:
 
 
 def parse_report_date(value: str) -> Optional[datetime]:
-    try:
-        return datetime.strptime(value.strip(), "%Y-%m-%d")
-    except ValueError:
-        return None
+    cleaned = value.strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(cleaned, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def build_report_html(
@@ -1207,7 +1210,7 @@ async def main() -> None:
             return
         await state.set_state(ReportStates.start_date)
         await message.answer(
-            "📅 Hisobot uchun boshlanish sanasini kiriting (YYYY-MM-DD).",
+            "📅 Hisobot uchun boshlanish sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).",
             reply_markup=cancel_keyboard(),
         )
 
@@ -1219,14 +1222,14 @@ async def main() -> None:
         start_date = parse_report_date(message.text or "")
         if not start_date:
             await message.answer(
-                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31).",
+                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31 yoki 31.01.2024).",
                 reply_markup=cancel_keyboard(),
             )
             return
         await state.update_data(report_start=start_date.strftime("%Y-%m-%d"))
         await state.set_state(ReportStates.end_date)
         await message.answer(
-            "📅 Hisobot uchun tugash sanasini kiriting (YYYY-MM-DD).",
+            "📅 Hisobot uchun tugash sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).",
             reply_markup=cancel_keyboard(),
         )
 
@@ -1238,7 +1241,7 @@ async def main() -> None:
         end_date = parse_report_date(message.text or "")
         if not end_date:
             await message.answer(
-                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31).",
+                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31 yoki 31.01.2024).",
                 reply_markup=cancel_keyboard(),
             )
             return
@@ -1250,9 +1253,12 @@ async def main() -> None:
                 reply_markup=cancel_keyboard(),
             )
             return
-        start_dt = datetime.combine(start_date.date(), time.min)
-        end_dt = datetime.combine(end_date.date(), time.max)
-        rows = list(db.list_orders_for_report(start_dt.isoformat(), end_dt.isoformat()))
+        rows = list(
+            db.list_orders_for_report(
+                start_date.strftime("%Y-%m-%d"),
+                end_date.strftime("%Y-%m-%d"),
+            )
+        )
         report_html = build_report_html(rows, start_date, end_date)
         timestamp = int(datetime.utcnow().timestamp())
         file_path = f"report_{message.from_user.id}_{timestamp}.html"

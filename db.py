@@ -479,8 +479,8 @@ def list_orders_for_report(
         JOIN users ON orders.user_id = users.id
         JOIN products ON orders.product_id = products.id
         WHERE orders.status != 'canceled'
-          AND orders.created_at >= ?
-          AND orders.created_at <= ?
+          AND date(orders.created_at) >= date(?)
+          AND date(orders.created_at) <= date(?)
         ORDER BY orders.created_at ASC
     """
     with get_connection() as conn:
