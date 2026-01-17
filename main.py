@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import urllib.parse
 import urllib.request
 from html import escape
@@ -50,6 +51,9 @@ BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
 BTN_SUPPORT = "🆘 Qo'llab-quvvatlash"
 BTN_SKIP_DESCRIPTION = "⏭ O'tkazish"
 BTN_SKIP_PHOTOS = "⏭ O'tkazish"
+BTN_BLOCK_USERS = "🚫 Bloklash/ochish"
+BTN_BLOCK = "🔒 Bloklash"
+BTN_UNBLOCK = "🔓 Blokdan chiqarish"
 
 
 class OrderStates(StatesGroup):
@@ -84,6 +88,11 @@ class SupportStates(StatesGroup):
     waiting_message = State()
 
 
+class BlockUserStates(StatesGroup):
+    action = State()
+    phone = State()
+
+
 @dataclass
 class BroadcastPayload:
     kind: str
@@ -114,6 +123,22 @@ class ActivityMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+class BlockedUserMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        if isinstance(event, (types.Message, types.CallbackQuery)) and event.from_user:
+            if not is_admin(event.from_user.id) and db.is_user_blocked(event.from_user.id):
+                blocked_text = (
+                    "⛔️ Siz bloklangansiz.\n"
+                    "Admin tomonidan blokdan chiqarilgach botdan foydalanishingiz mumkin."
+                )
+                if isinstance(event, types.CallbackQuery):
+                    await event.answer(blocked_text, show_alert=True)
+                else:
+                    await event.answer(blocked_text)
+                return
+        return await handler(event, data)
+
+
 def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text=BTN_PRODUCTS)],
@@ -125,6 +150,7 @@ def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     if is_admin:
         rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
         rows.append([KeyboardButton(text=BTN_BROADCAST)])
+        rows.append([KeyboardButton(text=BTN_BLOCK_USERS)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
@@ -153,6 +179,16 @@ def cancel_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def block_action_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_BLOCK), KeyboardButton(text=BTN_UNBLOCK)],
+            [KeyboardButton(text=BTN_CANCEL)],
+        ],
+        resize_keyboard=True,
+    )
+
+
 def description_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=BTN_SKIP_DESCRIPTION)], [KeyboardButton(text=BTN_CANCEL)]],
@@ -172,6 +208,21 @@ def order_address_keyboard() -> ReplyKeyboardMarkup:
 
 def is_cancel_message(message: types.Message) -> bool:
     return bool(message.text and message.text.strip() == BTN_CANCEL)
+
+
+def normalize_phone(value: str) -> str:
+    return "".join(char for char in value if char.isdigit())
+
+
+def find_user_by_phone(value: str) -> Optional[sqlite3.Row]:
+    normalized = normalize_phone(value)
+    if not normalized:
+        return None
+    for user in db.list_users():
+        user_phone = normalize_phone(user["phone"] or "")
+        if user_phone == normalized:
+            return user
+    return None
 
 
 def format_user_contact(first_name: Optional[str], last_name: Optional[str], phone: Optional[str]) -> str:
@@ -572,6 +623,8 @@ async def main() -> None:
 
     bot = Bot(token=token)
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.middleware(BlockedUserMiddleware())
+    dp.callback_query.middleware(BlockedUserMiddleware())
     dp.message.middleware(ActivityMiddleware())
 
     @dp.message(CommandStart())
@@ -902,6 +955,84 @@ async def main() -> None:
             "✅ Xabaringiz yuborildi. Javobni shu yerda kuting.",
             reply_markup=user_keyboard(is_admin(message.from_user.id)),
         )
+        await state.clear()
+
+    @dp.message(F.text == BTN_BLOCK_USERS)
+    async def block_users_menu(message: types.Message, state: FSMContext) -> None:
+        if not is_admin(message.from_user.id):
+            return
+        await state.set_state(BlockUserStates.action)
+        await message.answer(
+            "🔐 Foydalanuvchini bloklash yoki blokdan chiqarishni tanlang.",
+            reply_markup=block_action_keyboard(),
+        )
+
+    @dp.message(BlockUserStates.action)
+    async def block_users_choose_action(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        action_text = (message.text or "").strip()
+        if action_text not in {BTN_BLOCK, BTN_UNBLOCK}:
+            await message.answer(
+                "⚠️ Iltimos, bloklash yoki blokdan chiqarishni tanlang.",
+                reply_markup=block_action_keyboard(),
+            )
+            return
+        action_value = "block" if action_text == BTN_BLOCK else "unblock"
+        await state.update_data(block_action=action_value)
+        await message.answer(
+            "📲 Telefon raqamini yuboring (masalan: +998901234567).",
+            reply_markup=cancel_keyboard(),
+        )
+        await state.set_state(BlockUserStates.phone)
+
+    @dp.message(BlockUserStates.phone)
+    async def block_users_apply(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        user = find_user_by_phone(message.text or "")
+        if not user:
+            await message.answer(
+                "⚠️ Foydalanuvchi topilmadi. Telefon raqamini tekshirib qayta yuboring.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        if is_admin(user["tg_id"]):
+            await message.answer(
+                "⚠️ Admin foydalanuvchini bloklab bo'lmaydi.",
+                reply_markup=user_keyboard(True),
+            )
+            await state.clear()
+            return
+        data = await state.get_data()
+        action = data.get("block_action")
+        name_display = format_user_contact(user["first_name"], user["last_name"], user["phone"])
+        if action == "block":
+            if user["is_blocked"]:
+                await message.answer(
+                    f"ℹ️ Foydalanuvchi allaqachon bloklangan: {name_display}.",
+                    reply_markup=user_keyboard(True),
+                )
+            else:
+                db.set_user_blocked(user["tg_id"], True)
+                await message.answer(
+                    f"✅ Foydalanuvchi bloklandi: {name_display}.",
+                    reply_markup=user_keyboard(True),
+                )
+        else:
+            if not user["is_blocked"]:
+                await message.answer(
+                    f"ℹ️ Foydalanuvchi bloklanmagan: {name_display}.",
+                    reply_markup=user_keyboard(True),
+                )
+            else:
+                db.set_user_blocked(user["tg_id"], False)
+                await message.answer(
+                    f"✅ Foydalanuvchi blokdan chiqarildi: {name_display}.",
+                    reply_markup=user_keyboard(True),
+                )
         await state.clear()
 
     @dp.message(F.text == BTN_STATS)

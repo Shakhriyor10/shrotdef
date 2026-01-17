@@ -23,7 +23,8 @@ def init_db() -> None:
                 phone TEXT,
                 created_at TEXT NOT NULL,
                 last_active TEXT NOT NULL,
-                activity_count INTEGER NOT NULL DEFAULT 0
+                activity_count INTEGER NOT NULL DEFAULT 0,
+                is_blocked INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -101,6 +102,12 @@ def init_db() -> None:
         try:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN activity_count INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0"
             )
         except sqlite3.OperationalError:
             pass
@@ -184,6 +191,23 @@ def get_user_by_tg_id(tg_id: int) -> Optional[sqlite3.Row]:
         return conn.execute(
             "SELECT * FROM users WHERE tg_id = ?", (tg_id,)
         ).fetchone()
+
+
+def set_user_blocked(tg_id: int, blocked: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET is_blocked = ? WHERE tg_id = ?",
+            (1 if blocked else 0, tg_id),
+        )
+
+
+def is_user_blocked(tg_id: int) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT is_blocked FROM users WHERE tg_id = ?",
+            (tg_id,),
+        ).fetchone()
+    return bool(row and row["is_blocked"])
 
 
 def list_users() -> Iterable[sqlite3.Row]:
