@@ -683,46 +683,46 @@ def build_report_html(
   <script>
     const tbody = document.querySelector("tbody");
     const rows = Array.from(tbody.querySelectorAll("tr"));
-    const sortState = { name: "desc", count: "asc", amount: "asc" };
+    const sortState = {{ name: "desc", count: "asc", amount: "asc" }};
 
-    const getCellValue = (row, key) => {
-      const cell = row.querySelector(`[data-key="${key}"]`);
+    const getCellValue = (row, key) => {{
+      const cell = row.querySelector(`[data-key="${{key}}"]`);
       if (!cell) return "";
-      if (key === "name") {
+      if (key === "name") {{
         return (cell.dataset.value || cell.textContent).trim().toLowerCase();
-      }
+      }}
       const num = parseFloat(cell.dataset.value || "0");
       return Number.isNaN(num) ? 0 : num;
-    };
+    }};
 
-    const sortRows = (key) => {
+    const sortRows = (key) => {{
       const direction = sortState[key] === "asc" ? "desc" : "asc";
       sortState[key] = direction;
-      rows.sort((a, b) => {
+      rows.sort((a, b) => {{
         const av = getCellValue(a, key);
         const bv = getCellValue(b, key);
-        if (key === "name") {
+        if (key === "name") {{
           if (av < bv) return direction === "asc" ? -1 : 1;
           if (av > bv) return direction === "asc" ? 1 : -1;
           return 0;
-        }
+        }}
         return direction === "asc" ? av - bv : bv - av;
-      });
+      }});
       rows.forEach((row) => tbody.appendChild(row));
-    };
+    }};
 
-    document.querySelectorAll("th[data-sort]").forEach((th) => {
+    document.querySelectorAll("th[data-sort]").forEach((th) => {{
       th.addEventListener("click", () => sortRows(th.dataset.sort));
-    });
+    }});
 
     const searchInput = document.getElementById("searchInput");
-    searchInput.addEventListener("input", (event) => {
+    searchInput.addEventListener("input", (event) => {{
       const query = event.target.value.trim().toLowerCase();
-      rows.forEach((row) => {
+      rows.forEach((row) => {{
         const rowText = row.textContent.toLowerCase();
         row.style.display = rowText.includes(query) ? "" : "none";
-      });
-    });
+      }});
+    }});
   </script>
 </body>
 </html>"""
