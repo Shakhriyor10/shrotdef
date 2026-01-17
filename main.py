@@ -24,6 +24,7 @@ import db
 
 ADMIN_LIST = {960217500, 8359092913, 5950335991, 45152058}
 GROUP_LIST = {-1003580758940,}
+REPORT_LIST = {960217500,}
 
 INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
