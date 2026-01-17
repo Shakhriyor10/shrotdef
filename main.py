@@ -7,7 +7,7 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from html import escape
-from datetime import datetime
+from datetime import datetime, time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -45,6 +45,7 @@ BTN_ORDERS_LIST = "🧾 Buyurtmalar ro'yxati"
 BTN_BROADCAST = "📣 Xabar tarqatish"
 BTN_ADD_PRODUCT = "➕ Mahsulot qo'shish"
 BTN_EDIT_PRODUCT = "✏️ Mahsulotni tahrirlash"
+BTN_REPORTS = "📑 Hisobotlar"
 BTN_SEND_PHONE = "📲 Telefon raqamni yuborish"
 BTN_CANCEL = "❌ Bekor qilish"
 BTN_SEND_LOCATION = "📍 Lokatsiyani yuborish"
@@ -91,6 +92,11 @@ class SupportStates(StatesGroup):
 class BlockUserStates(StatesGroup):
     action = State()
     phone = State()
+
+
+class ReportStates(StatesGroup):
+    start_date = State()
+    end_date = State()
 
 
 @dataclass
@@ -149,6 +155,7 @@ def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
         rows.append([KeyboardButton(text=BTN_SUPPORT)])
     if is_admin:
         rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
+        rows.append([KeyboardButton(text=BTN_REPORTS)])
         rows.append([KeyboardButton(text=BTN_BROADCAST)])
         rows.append([KeyboardButton(text=BTN_BLOCK_USERS)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -459,6 +466,137 @@ def format_money_with_commas(value: Optional[float]) -> str:
     if abs(value - round(value)) < 1e-9:
         return f"{int(round(value)):,}"
     return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def parse_report_date(value: str) -> Optional[datetime]:
+    try:
+        return datetime.strptime(value.strip(), "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def build_report_html(
+    rows: list[sqlite3.Row],
+    start_date: datetime,
+    end_date: datetime,
+) -> str:
+    per_user: dict[int, dict[str, object]] = {}
+    total_sum = 0.0
+    for row in rows:
+        qty_kg = parse_quantity_to_kg(row["quantity"])
+        price_per_kg = row["order_price_per_kg"] or row["product_price_per_kg"]
+        if qty_kg is None or price_per_kg is None:
+            continue
+        amount = qty_kg * price_per_kg
+        total_sum += amount
+        user_entry = per_user.setdefault(
+            row["user_id"],
+            {
+                "name": format_user_contact(row["first_name"], row["last_name"], row["phone"]),
+                "count": 0,
+                "amount": 0.0,
+            },
+        )
+        user_entry["count"] += 1
+        user_entry["amount"] += amount
+    rows_html = []
+    for idx, (_, entry) in enumerate(
+        sorted(per_user.items(), key=lambda item: item[1]["amount"], reverse=True),
+        start=1,
+    ):
+        rows_html.append(
+            "<tr>"
+            f"<td>{idx}</td>"
+            f"<td>{escape(entry['name'])}</td>"
+            f"<td style=\"text-align:center;\">{entry['count']}</td>"
+            f"<td style=\"text-align:right;\">{escape(format_money_with_commas(entry['amount']))}</td>"
+            "</tr>"
+        )
+    if not rows_html:
+        rows_html.append(
+            "<tr><td colspan=\"4\" style=\"text-align:center; padding: 16px;\">"
+            "Ma'lumot topilmadi"
+            "</td></tr>"
+        )
+    period_label = f"{start_date.strftime('%Y-%m-%d')} — {end_date.strftime('%Y-%m-%d')}"
+    total_label = escape(format_money_with_commas(total_sum))
+    return f"""<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hisobot</title>
+  <style>
+    body {{
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f5f7fb;
+      color: #1f2a44;
+      margin: 0;
+      padding: 24px;
+    }}
+    .card {{
+      max-width: 900px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+      padding: 24px;
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 24px;
+    }}
+    .period {{
+      color: #64748b;
+      margin-bottom: 16px;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }}
+    th, td {{
+      padding: 12px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 14px;
+    }}
+    th {{
+      text-align: left;
+      background: #f1f5f9;
+      color: #475569;
+    }}
+    .total {{
+      margin-top: 20px;
+      padding: 16px;
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 12px;
+      text-align: right;
+      font-weight: 600;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Hisobot</h1>
+    <div class="period">Davr: {escape(period_label)}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Mijoz</th>
+          <th style="text-align:center;">Buyurtmalar soni</th>
+          <th style="text-align:right;">Jami summa (so'm)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(rows_html)}
+      </tbody>
+    </table>
+    <div class="total">Umumiy summa: {total_label} so'm</div>
+  </div>
+</body>
+</html>"""
 
 
 def parse_quantity_to_kg(value: str) -> Optional[float]:
@@ -1062,6 +1200,74 @@ async def main() -> None:
             "🚀 Botdan ko'p foydalanadigan foydalanuvchilar:\n"
             f"{active_users_text}"
         )
+
+    @dp.message(F.text == BTN_REPORTS)
+    async def report_start(message: types.Message, state: FSMContext) -> None:
+        if not is_admin(message.from_user.id):
+            return
+        await state.set_state(ReportStates.start_date)
+        await message.answer(
+            "📅 Hisobot uchun boshlanish sanasini kiriting (YYYY-MM-DD).",
+            reply_markup=cancel_keyboard(),
+        )
+
+    @dp.message(ReportStates.start_date)
+    async def report_start_date(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        start_date = parse_report_date(message.text or "")
+        if not start_date:
+            await message.answer(
+                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31).",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        await state.update_data(report_start=start_date.strftime("%Y-%m-%d"))
+        await state.set_state(ReportStates.end_date)
+        await message.answer(
+            "📅 Hisobot uchun tugash sanasini kiriting (YYYY-MM-DD).",
+            reply_markup=cancel_keyboard(),
+        )
+
+    @dp.message(ReportStates.end_date)
+    async def report_end_date(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        end_date = parse_report_date(message.text or "")
+        if not end_date:
+            await message.answer(
+                "⚠️ Sana formatini tekshiring (masalan: 2024-01-31).",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        data = await state.get_data()
+        start_date = datetime.strptime(data["report_start"], "%Y-%m-%d")
+        if end_date < start_date:
+            await message.answer(
+                "⚠️ Tugash sanasi boshlanish sanasidan oldin bo'lmasligi kerak.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        start_dt = datetime.combine(start_date.date(), time.min)
+        end_dt = datetime.combine(end_date.date(), time.max)
+        rows = list(db.list_orders_for_report(start_dt.isoformat(), end_dt.isoformat()))
+        report_html = build_report_html(rows, start_date, end_date)
+        timestamp = int(datetime.utcnow().timestamp())
+        file_path = f"report_{message.from_user.id}_{timestamp}.html"
+        with open(file_path, "w", encoding="utf-8") as handle:
+            handle.write(report_html)
+        try:
+            await message.answer_document(
+                types.FSInputFile(file_path),
+                caption="📑 Hisobot tayyor.",
+                reply_markup=user_keyboard(True),
+            )
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        await state.clear()
 
     @dp.message(F.text == BTN_ORDERS_LIST)
     async def show_orders_summary(message: types.Message) -> None:
