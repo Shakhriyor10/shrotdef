@@ -510,9 +510,15 @@ def build_report_html(
         rows_html.append(
             "<tr>"
             f"<td data-label=\"#\">{idx}</td>"
-            f"<td data-label=\"Mijoz\">{escape(entry['name'])}</td>"
-            f"<td data-label=\"Buyurtmalar soni\" style=\"text-align:center;\">{entry['count']}</td>"
-            "<td data-label=\"Jami summa (so'm)\" style=\"text-align:right;\">"
+            f"<td data-label=\"Mijoz\" data-key=\"name\" data-value=\"{escape(entry['name'])}\">"
+            f"{escape(entry['name'])}"
+            "</td>"
+            "<td data-label=\"Buyurtmalar soni\" data-key=\"count\" "
+            f"data-value=\"{entry['count']}\" style=\"text-align:center;\">"
+            f"{entry['count']}"
+            "</td>"
+            "<td data-label=\"Jami summa (so'm)\" data-key=\"amount\" "
+            f"data-value=\"{entry['amount']}\" style=\"text-align:right;\">"
             f"{escape(format_money_with_commas(entry['amount']))}"
             "</td>"
             "</tr>"
@@ -573,6 +579,29 @@ def build_report_html(
       background: #f1f5f9;
       color: #475569;
     }}
+    th.sortable {{
+      cursor: pointer;
+      user-select: none;
+    }}
+    .toolbar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 12px 0 4px;
+    }}
+    .search-input {{
+      flex: 1 1 240px;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      font-size: 14px;
+    }}
+    .hint {{
+      font-size: 12px;
+      color: #64748b;
+    }}
     td[data-label]::before {{
       content: attr(data-label);
       display: none;
@@ -621,6 +650,10 @@ def build_report_html(
       .total {{
         text-align: left;
       }}
+      .toolbar {{
+        flex-direction: column;
+        align-items: stretch;
+      }}
     }}
   </style>
 </head>
@@ -628,13 +661,17 @@ def build_report_html(
   <div class="card">
     <h1>Hisobot</h1>
     <div class="period">Davr: {escape(period_label)}</div>
+    <div class="toolbar">
+      <input id="searchInput" class="search-input" type="text" placeholder="Qidirish: mijoz, soni yoki summa" />
+      <div class="hint">Sarlavhalarni bosib saralang (Mijoz, Buyurtmalar soni, Jami summa)</div>
+    </div>
     <table>
       <thead>
         <tr>
           <th>#</th>
-          <th>Mijoz</th>
-          <th style="text-align:center;">Buyurtmalar soni</th>
-          <th style="text-align:right;">Jami summa (so'm)</th>
+          <th class="sortable" data-sort="name">Mijoz</th>
+          <th class="sortable" data-sort="count" style="text-align:center;">Buyurtmalar soni</th>
+          <th class="sortable" data-sort="amount" style="text-align:right;">Jami summa (so'm)</th>
         </tr>
       </thead>
       <tbody>
@@ -643,6 +680,50 @@ def build_report_html(
     </table>
     <div class="total">Umumiy summa: {total_label} so'm</div>
   </div>
+  <script>
+    const tbody = document.querySelector("tbody");
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const sortState = { name: "desc", count: "asc", amount: "asc" };
+
+    const getCellValue = (row, key) => {
+      const cell = row.querySelector(`[data-key="${key}"]`);
+      if (!cell) return "";
+      if (key === "name") {
+        return (cell.dataset.value || cell.textContent).trim().toLowerCase();
+      }
+      const num = parseFloat(cell.dataset.value || "0");
+      return Number.isNaN(num) ? 0 : num;
+    };
+
+    const sortRows = (key) => {
+      const direction = sortState[key] === "asc" ? "desc" : "asc";
+      sortState[key] = direction;
+      rows.sort((a, b) => {
+        const av = getCellValue(a, key);
+        const bv = getCellValue(b, key);
+        if (key === "name") {
+          if (av < bv) return direction === "asc" ? -1 : 1;
+          if (av > bv) return direction === "asc" ? 1 : -1;
+          return 0;
+        }
+        return direction === "asc" ? av - bv : bv - av;
+      });
+      rows.forEach((row) => tbody.appendChild(row));
+    };
+
+    document.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => sortRows(th.dataset.sort));
+    });
+
+    const searchInput = document.getElementById("searchInput");
+    searchInput.addEventListener("input", (event) => {
+      const query = event.target.value.trim().toLowerCase();
+      rows.forEach((row) => {
+        const rowText = row.textContent.toLowerCase();
+        row.style.display = rowText.includes(query) ? "" : "none";
+      });
+    });
+  </script>
 </body>
 </html>"""
 
