@@ -591,6 +591,19 @@ def build_report_html(
       flex-wrap: wrap;
       margin: 12px 0 4px;
     }}
+    .sort-buttons {{
+      display: none;
+      gap: 8px;
+      flex-wrap: wrap;
+    }}
+    .sort-button {{
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      font-size: 12px;
+      cursor: pointer;
+    }}
     .search-input {{
       flex: 1 1 240px;
       padding: 10px 12px;
@@ -654,6 +667,9 @@ def build_report_html(
         flex-direction: column;
         align-items: stretch;
       }}
+      .sort-buttons {{
+        display: flex;
+      }}
     }}
   </style>
 </head>
@@ -664,6 +680,11 @@ def build_report_html(
     <div class="toolbar">
       <input id="searchInput" class="search-input" type="text" placeholder="Qidirish: mijoz, soni yoki summa" />
       <div class="hint">Sarlavhalarni bosib saralang (Mijoz, Buyurtmalar soni, Jami summa)</div>
+    </div>
+    <div class="sort-buttons" aria-label="Saralash tugmalari">
+      <button type="button" class="sort-button" data-sort="name">Mijoz</button>
+      <button type="button" class="sort-button" data-sort="count">Buyurtmalar soni</button>
+      <button type="button" class="sort-button" data-sort="amount">Jami summa</button>
     </div>
     <table>
       <thead>
@@ -711,9 +732,14 @@ def build_report_html(
       rows.forEach((row) => tbody.appendChild(row));
     }};
 
-    document.querySelectorAll("th[data-sort]").forEach((th) => {{
-      th.addEventListener("click", () => sortRows(th.dataset.sort));
-    }});
+    const bindSort = (selector) => {{
+      document.querySelectorAll(selector).forEach((element) => {{
+        element.addEventListener("click", () => sortRows(element.dataset.sort));
+      }});
+    }};
+
+    bindSort("th[data-sort]");
+    bindSort("button[data-sort]");
 
     const searchInput = document.getElementById("searchInput");
     searchInput.addEventListener("input", (event) => {{
