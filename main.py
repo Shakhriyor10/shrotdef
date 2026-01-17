@@ -22,7 +22,7 @@ from aiogram.utils.media_group import MediaGroupBuilder
 
 import db
 
-ADMIN_LIST = {960217500, 8359092913, 5950335991, 45152058}
+ADMIN_LIST = {960217500, 8359092913, 5950335991, 45152058, 7746040125}
 GROUP_LIST = {-1003580758940,}
 REPORT_LIST = {960217500,}
 
@@ -146,17 +146,24 @@ class BlockedUserMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
-def user_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+def can_view_reports(user_id: int) -> bool:
+    return user_id in REPORT_LIST
+
+
+def user_keyboard(user_id: int, is_admin_override: Optional[bool] = None) -> ReplyKeyboardMarkup:
+    is_admin_user = is_admin_override if is_admin_override is not None else is_admin(user_id)
     rows = [
         [KeyboardButton(text=BTN_PRODUCTS)],
         [KeyboardButton(text=BTN_CONTACT), KeyboardButton(text=BTN_NEWS)],
     ]
-    if not is_admin:
+    if not is_admin_user:
         rows.insert(1, [KeyboardButton(text=BTN_MY_ORDERS)])
         rows.append([KeyboardButton(text=BTN_SUPPORT)])
-    if is_admin:
+    if is_admin_user:
         rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
+    if can_view_reports(user_id):
         rows.append([KeyboardButton(text=BTN_REPORTS)])
+    if is_admin_user:
         rows.append([KeyboardButton(text=BTN_BROADCAST)])
         rows.append([KeyboardButton(text=BTN_BLOCK_USERS)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -242,7 +249,7 @@ def format_user_contact(first_name: Optional[str], last_name: Optional[str], pho
 
 async def cancel_admin_action(message: types.Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("❌ Amal bekor qilindi.", reply_markup=user_keyboard(True))
+    await message.answer("❌ Amal bekor qilindi.", reply_markup=user_keyboard(message.from_user.id))
 
 
 def product_inline_keyboard(product_id: int, admin: bool) -> InlineKeyboardMarkup:
@@ -936,7 +943,7 @@ async def main() -> None:
         user = db.get_user_by_tg_id(message.from_user.id)
         if user and user["phone"]:
             await message.answer(
-                "👋 Xush kelibsiz!", reply_markup=user_keyboard(is_admin(message.from_user.id))
+                "👋 Xush kelibsiz!", reply_markup=user_keyboard(message.from_user.id)
             )
         else:
             await message.answer(
@@ -952,7 +959,7 @@ async def main() -> None:
         db.update_user_phone(message.from_user.id, message.contact.phone_number)
         await message.answer(
             "✅ Rahmat! Endi botdan foydalanishingiz mumkin.",
-            reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            reply_markup=user_keyboard(message.from_user.id),
         )
 
     @dp.message(F.text == BTN_PRODUCTS)
@@ -1002,7 +1009,7 @@ async def main() -> None:
         if is_cancel_message(message):
             await state.clear()
             await message.answer(
-                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(message.from_user.id)
             )
             return
         qty_tons = parse_quantity_to_tons(message.text or "")
@@ -1091,7 +1098,7 @@ async def main() -> None:
             longitude=data.get("longitude"),
         )
         await message.answer(
-            "✅ Buyurtma tasdiqlandi!", reply_markup=user_keyboard(is_admin(message.from_user.id))
+            "✅ Buyurtma tasdiqlandi!", reply_markup=user_keyboard(message.from_user.id)
         )
         await notify_admins_new_order(message.bot, order_id)
         await state.clear()
@@ -1117,7 +1124,7 @@ async def main() -> None:
         if is_cancel_message(message):
             await state.clear()
             await message.answer(
-                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(is_admin(message.from_user.id))
+                "❌ Ariza bekor qilindi.", reply_markup=user_keyboard(message.from_user.id)
             )
             return
         await state.update_data(address=message.text, latitude=None, longitude=None)
@@ -1140,7 +1147,7 @@ async def main() -> None:
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
             await callback.message.answer(
-                "❌ Buyurtma bekor qilindi.", reply_markup=user_keyboard(is_admin(callback.from_user.id))
+                "❌ Buyurtma bekor qilindi.", reply_markup=user_keyboard(callback.from_user.id)
             )
         await callback.answer("❌ Bekor qilindi")
 
@@ -1179,7 +1186,7 @@ async def main() -> None:
             await state.clear()
             await message.answer(
                 "❌ Qo'llab-quvvatlash bekor qilindi.",
-                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+                reply_markup=user_keyboard(message.from_user.id),
             )
             return
         if message.media_group_id:
@@ -1189,14 +1196,14 @@ async def main() -> None:
             support_media_group_reject.add(reject_key)
             await message.answer(
                 "⚠️ Iltimos, faqat bitta rasm yuboring yoki faqat matn yuboring.",
-                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+                reply_markup=user_keyboard(message.from_user.id),
             )
             await state.clear()
             return
         if not GROUP_LIST:
             await message.answer(
                 "⚠️ Hozircha qo'llab-quvvatlash guruhi mavjud emas.",
-                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+                reply_markup=user_keyboard(message.from_user.id),
             )
             await state.clear()
             return
@@ -1246,13 +1253,13 @@ async def main() -> None:
         if not success:
             await message.answer(
                 "⚠️ Xabarni yuborib bo'lmadi. Iltimos, keyinroq urinib ko'ring.",
-                reply_markup=user_keyboard(is_admin(message.from_user.id)),
+                reply_markup=user_keyboard(message.from_user.id),
             )
             await state.clear()
             return
         await message.answer(
             "✅ Xabaringiz yuborildi. Javobni shu yerda kuting.",
-            reply_markup=user_keyboard(is_admin(message.from_user.id)),
+            reply_markup=user_keyboard(message.from_user.id),
         )
         await state.clear()
 
@@ -1301,7 +1308,7 @@ async def main() -> None:
         if is_admin(user["tg_id"]):
             await message.answer(
                 "⚠️ Admin foydalanuvchini bloklab bo'lmaydi.",
-                reply_markup=user_keyboard(True),
+                reply_markup=user_keyboard(message.from_user.id),
             )
             await state.clear()
             return
@@ -1312,25 +1319,25 @@ async def main() -> None:
             if user["is_blocked"]:
                 await message.answer(
                     f"ℹ️ Foydalanuvchi allaqachon bloklangan: {name_display}.",
-                    reply_markup=user_keyboard(True),
+                    reply_markup=user_keyboard(message.from_user.id),
                 )
             else:
                 db.set_user_blocked(user["tg_id"], True)
                 await message.answer(
                     f"✅ Foydalanuvchi bloklandi: {name_display}.",
-                    reply_markup=user_keyboard(True),
+                    reply_markup=user_keyboard(message.from_user.id),
                 )
         else:
             if not user["is_blocked"]:
                 await message.answer(
                     f"ℹ️ Foydalanuvchi bloklanmagan: {name_display}.",
-                    reply_markup=user_keyboard(True),
+                    reply_markup=user_keyboard(message.from_user.id),
                 )
             else:
                 db.set_user_blocked(user["tg_id"], False)
                 await message.answer(
                     f"✅ Foydalanuvchi blokdan chiqarildi: {name_display}.",
-                    reply_markup=user_keyboard(True),
+                    reply_markup=user_keyboard(message.from_user.id),
                 )
         await state.clear()
 
@@ -1364,7 +1371,7 @@ async def main() -> None:
 
     @dp.message(F.text == BTN_REPORTS)
     async def report_start(message: types.Message, state: FSMContext) -> None:
-        if not is_admin(message.from_user.id):
+        if not can_view_reports(message.from_user.id):
             return
         await state.set_state(ReportStates.start_date)
         await message.answer(
@@ -1426,7 +1433,7 @@ async def main() -> None:
             await message.answer_document(
                 types.FSInputFile(file_path),
                 caption="📑 Hisobot tayyor.",
-                reply_markup=user_keyboard(True),
+                reply_markup=user_keyboard(message.from_user.id),
             )
         finally:
             if os.path.exists(file_path):
@@ -1554,7 +1561,7 @@ async def main() -> None:
     async def handle_order_search(message: types.Message, state: FSMContext) -> None:
         if is_cancel_message(message):
             await state.clear()
-            await message.answer("❌ Qidiruv bekor qilindi.", reply_markup=user_keyboard(True))
+            await message.answer("❌ Qidiruv bekor qilindi.", reply_markup=user_keyboard(message.from_user.id))
             return
         search_text = message.text or ""
         match = re.search(r"\d+", search_text)
@@ -1801,7 +1808,7 @@ async def main() -> None:
             product_id = db.add_product(data["name"], data["price"], data["description"])
             if photos:
                 db.set_product_photos(product_id, photos[:1])
-            await message.answer("✅ Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
+            await message.answer("✅ Mahsulot qo'shildi.", reply_markup=user_keyboard(message.from_user.id))
             await state.clear()
             return
         if not message.photo:
@@ -1814,7 +1821,7 @@ async def main() -> None:
         await state.update_data(photos=photos[:1])
         product_id = db.add_product(data["name"], data["price"], data["description"])
         db.set_product_photos(product_id, photos[:1])
-        await message.answer("✅ Mahsulot qo'shildi.", reply_markup=user_keyboard(True))
+        await message.answer("✅ Mahsulot qo'shildi.", reply_markup=user_keyboard(message.from_user.id))
         await state.clear()
 
     @dp.message(F.text == BTN_EDIT_PRODUCT)
@@ -1890,7 +1897,7 @@ async def main() -> None:
             db.update_product_price(product_id, price)
         elif field == "description":
             db.update_product_description(product_id, message.text)
-        await message.answer("✅ Mahsulot yangilandi.", reply_markup=user_keyboard(True))
+        await message.answer("✅ Mahsulot yangilandi.", reply_markup=user_keyboard(message.from_user.id))
         await state.clear()
 
     @dp.message(EditProductStates.photos)
@@ -1905,7 +1912,7 @@ async def main() -> None:
                 db.set_product_photos(data["product_id"], photos[:1])
             else:
                 db.set_product_photos(data["product_id"], [])
-            await message.answer("✅ Rasmlar yangilandi.", reply_markup=user_keyboard(True))
+            await message.answer("✅ Rasmlar yangilandi.", reply_markup=user_keyboard(message.from_user.id))
             await state.clear()
             return
         if not message.photo:
@@ -1917,7 +1924,7 @@ async def main() -> None:
         photos = [message.photo[-1].file_id]
         await state.update_data(photos=photos[:1])
         db.set_product_photos(data["product_id"], photos[:1])
-        await message.answer("✅ Rasmlar yangilandi.", reply_markup=user_keyboard(True))
+        await message.answer("✅ Rasmlar yangilandi.", reply_markup=user_keyboard(message.from_user.id))
         await state.clear()
 
     @dp.callback_query(F.data.startswith("product_delete:confirm:"))
@@ -1933,7 +1940,7 @@ async def main() -> None:
             await callback.answer("🔎 Mahsulot topilmadi.", show_alert=True)
             return
         await state.clear()
-        await callback.message.answer("🗑 Mahsulot o'chirildi.", reply_markup=user_keyboard(True))
+        await callback.message.answer("🗑 Mahsulot o'chirildi.", reply_markup=user_keyboard(callback.from_user.id))
         await callback.answer()
 
     @dp.callback_query(F.data.startswith("product_delete:cancel:"))
