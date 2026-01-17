@@ -509,10 +509,12 @@ def build_report_html(
     ):
         rows_html.append(
             "<tr>"
-            f"<td>{idx}</td>"
-            f"<td>{escape(entry['name'])}</td>"
-            f"<td style=\"text-align:center;\">{entry['count']}</td>"
-            f"<td style=\"text-align:right;\">{escape(format_money_with_commas(entry['amount']))}</td>"
+            f"<td data-label=\"#\">{idx}</td>"
+            f"<td data-label=\"Mijoz\">{escape(entry['name'])}</td>"
+            f"<td data-label=\"Buyurtmalar soni\" style=\"text-align:center;\">{entry['count']}</td>"
+            "<td data-label=\"Jami summa (so'm)\" style=\"text-align:right;\">"
+            f"{escape(format_money_with_commas(entry['amount']))}"
+            "</td>"
             "</tr>"
         )
     if not rows_html:
@@ -536,6 +538,9 @@ def build_report_html(
       color: #1f2a44;
       margin: 0;
       padding: 24px;
+    }}
+    * {{
+      box-sizing: border-box;
     }}
     .card {{
       max-width: 900px;
@@ -568,6 +573,12 @@ def build_report_html(
       background: #f1f5f9;
       color: #475569;
     }}
+    td[data-label]::before {{
+      content: attr(data-label);
+      display: none;
+      font-weight: 600;
+      color: #475569;
+    }}
     .total {{
       margin-top: 20px;
       padding: 16px;
@@ -576,6 +587,40 @@ def build_report_html(
       border-radius: 12px;
       text-align: right;
       font-weight: 600;
+    }}
+    @media (max-width: 600px) {{
+      body {{
+        padding: 16px;
+      }}
+      .card {{
+        padding: 16px;
+      }}
+      table {{
+        border: 0;
+      }}
+      thead {{
+        display: none;
+      }}
+      tr {{
+        display: block;
+        margin-bottom: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 8px;
+      }}
+      td {{
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 6px;
+        border: none;
+      }}
+      td[data-label]::before {{
+        display: block;
+      }}
+      .total {{
+        text-align: left;
+      }}
     }}
   </style>
 </head>
