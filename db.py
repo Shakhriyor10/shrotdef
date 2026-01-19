@@ -573,6 +573,12 @@ def get_order_with_details(order_id: int) -> Optional[sqlite3.Row]:
         return conn.execute(query, (order_id,)).fetchone()
 
 
+def delete_order(order_id: int) -> bool:
+    with get_connection() as conn:
+        cur = conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+        return cur.rowcount > 0
+
+
 def list_orders_for_user(user_id: int) -> Iterable[sqlite3.Row]:
     query = """
         SELECT
