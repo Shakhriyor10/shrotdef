@@ -56,7 +56,7 @@ BTN_SKIP_PHOTOS = "⏭ O'tkazish"
 BTN_BLOCK_USERS = "🚫 Bloklash/ochish"
 BTN_BLOCK = "🔒 Bloklash"
 BTN_UNBLOCK = "🔓 Blokdan chiqarish"
-BTN_CREATE_ORDER = "📝 Создать заявку"
+BTN_CREATE_ORDER = "📝 Buyurtma yaratish"
 
 
 class OrderStates(StatesGroup):
@@ -372,8 +372,8 @@ def order_confirm_keyboard() -> InlineKeyboardMarkup:
 def admin_order_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Да", callback_data="admin_order_confirm")],
-            [InlineKeyboardButton(text="❌ Нет", callback_data="admin_order_cancel")],
+            [InlineKeyboardButton(text="✅ Ha", callback_data="admin_order_confirm")],
+            [InlineKeyboardButton(text="❌ Yo'q", callback_data="admin_order_cancel")],
         ]
     )
 
@@ -1294,7 +1294,7 @@ async def main() -> None:
             f"💰 Narx (1 kg): {escape(format_price(product['price_per_kg']))} сум",
             f"💵 Jami: {escape(format_deal_price(data['quantity'], product['price_per_kg']))}",
             "",
-            "Вы точно хотите создать заказ? Он будет создан со статусом «Yopilgan».",
+            "Buyurtmani yaratishni tasdiqlaysizmi? Buyurtma «Yopilgan» holatida yaratiladi.",
         ]
         await message.answer(
             "\n".join(lines),
