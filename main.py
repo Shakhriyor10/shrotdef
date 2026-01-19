@@ -561,14 +561,20 @@ def format_tons(value: float) -> str:
     return f"{value:,.2f}".rstrip("0").rstrip(".")
 
 
-def calculate_report_stats(rows: list[sqlite3.Row]) -> tuple[float, list[dict[str, object]]]:
+def calculate_report_stats(
+    rows: list[sqlite3.Row],
+) -> tuple[float, float, list[dict[str, object]]]:
     per_client_product: dict[tuple[int, str], dict[str, object]] = {}
+    total_sum = 0.0
     total_tons = 0.0
     for row in rows:
         qty_kg = parse_quantity_to_kg(row["quantity"])
-        if qty_kg is None:
+        price_per_kg = row["order_price_per_kg"] or row["product_price_per_kg"]
+        if qty_kg is None or price_per_kg is None:
             continue
+        amount = qty_kg * price_per_kg
         tons = qty_kg / 1000
+        total_sum += amount
         total_tons += tons
         key = (row["user_id"], row["product_name"])
         entry = per_client_product.setdefault(
@@ -577,15 +583,17 @@ def calculate_report_stats(rows: list[sqlite3.Row]) -> tuple[float, list[dict[st
                 "name": format_user_contact(row["first_name"], row["last_name"], row["phone"]),
                 "product": row["product_name"],
                 "tons": 0.0,
+                "amount": 0.0,
             },
         )
         entry["tons"] += tons
+        entry["amount"] += amount
     sorted_entries = sorted(
         per_client_product.values(),
-        key=lambda item: item["tons"],
+        key=lambda item: item["amount"],
         reverse=True,
     )
-    return total_tons, sorted_entries
+    return total_sum, total_tons, sorted_entries
 
 
 def build_report_summary_text(
@@ -594,21 +602,25 @@ def build_report_summary_text(
     end_date: datetime,
     limit: int = 20,
 ) -> str:
-    total_tons, entries = calculate_report_stats(rows)
+    total_sum, total_tons, entries = calculate_report_stats(rows)
     period_label = format_report_period(start_date, end_date)
-    total_label = format_tons(total_tons)
+    total_sum_label = format_money_with_commas(total_sum)
+    total_tons_label = format_tons(total_tons)
     lines = [
         "📑 Hisobot",
         f"📅 Davr: {period_label}",
-        f"⚖️ Jami tonna: {total_label} t",
+        f"💵 Umumiy summa: {total_sum_label} so'm",
+        f"⚖️ Jami tonna: {total_tons_label} t",
     ]
     if not entries:
         lines.append("📭 Ma'lumot topilmadi.")
         return "\n".join(lines)
     lines.append("📌 Mijozlar va mahsulotlar:")
     for idx, entry in enumerate(entries[:limit], start=1):
+        amount_label = format_money_with_commas(entry["amount"])
         lines.append(
-            f"{idx}. {entry['name']} — {entry['product']}: {format_tons(entry['tons'])} t"
+            f"{idx}. {entry['name']} — {entry['product']}: "
+            f"{format_tons(entry['tons'])} t, {amount_label} so'm"
         )
     return "\n".join(lines)
 
@@ -618,7 +630,7 @@ def build_report_html(
     start_date: datetime,
     end_date: datetime,
 ) -> str:
-    total_tons, entries = calculate_report_stats(rows)
+    total_sum, total_tons, entries = calculate_report_stats(rows)
     rows_html = []
     for idx, entry in enumerate(entries, start=1):
         rows_html.append(
@@ -634,16 +646,21 @@ def build_report_html(
             f"data-value=\"{entry['tons']}\" style=\"text-align:right;\">"
             f"{escape(format_tons(entry['tons']))}"
             "</td>"
+            "<td data-label=\"Jami summa (so'm)\" data-key=\"amount\" "
+            f"data-value=\"{entry['amount']}\" style=\"text-align:right;\">"
+            f"{escape(format_money_with_commas(entry['amount']))}"
+            "</td>"
             "</tr>"
         )
     if not rows_html:
         rows_html.append(
-            "<tr><td colspan=\"4\" style=\"text-align:center; padding: 16px;\">"
+            "<tr><td colspan=\"5\" style=\"text-align:center; padding: 16px;\">"
             "Ma'lumot topilmadi"
             "</td></tr>"
         )
     period_label = format_report_period(start_date, end_date)
-    total_label = escape(format_tons(total_tons))
+    total_sum_label = escape(format_money_with_commas(total_sum))
+    total_tons_label = escape(format_tons(total_tons))
     return f"""<!DOCTYPE html>
 <html lang="uz">
 <head>
@@ -796,13 +813,14 @@ def build_report_html(
     <h1>Hisobot</h1>
     <div class="period">Davr: {escape(period_label)}</div>
     <div class="toolbar">
-      <input id="searchInput" class="search-input" type="text" placeholder="Qidirish: mijoz, mahsulot yoki tonna" />
-      <div class="hint">Sarlavhalarni bosib saralang (Mijoz, Mahsulot, Tonna)</div>
+      <input id="searchInput" class="search-input" type="text" placeholder="Qidirish: mijoz, mahsulot, tonna yoki summa" />
+      <div class="hint">Sarlavhalarni bosib saralang (Mijoz, Mahsulot, Tonna, Jami summa)</div>
     </div>
     <div class="sort-buttons" aria-label="Saralash tugmalari">
       <button type="button" class="sort-button" data-sort="name">Mijoz</button>
       <button type="button" class="sort-button" data-sort="product">Mahsulot</button>
       <button type="button" class="sort-button" data-sort="tons">Tonna</button>
+      <button type="button" class="sort-button" data-sort="amount">Jami summa</button>
     </div>
     <table>
       <thead>
@@ -811,18 +829,19 @@ def build_report_html(
           <th class="sortable" data-sort="name">Mijoz</th>
           <th class="sortable" data-sort="product">Mahsulot</th>
           <th class="sortable" data-sort="tons" style="text-align:right;">Tonna (t)</th>
+          <th class="sortable" data-sort="amount" style="text-align:right;">Jami summa (so'm)</th>
         </tr>
       </thead>
       <tbody>
         {''.join(rows_html)}
       </tbody>
     </table>
-    <div class="total">Jami tonna: {total_label} t</div>
+    <div class="total">Umumiy summa: {total_sum_label} so'm · Jami tonna: {total_tons_label} t</div>
   </div>
   <script>
     const tbody = document.querySelector("tbody");
     const rows = Array.from(tbody.querySelectorAll("tr"));
-    const sortState = {{ name: "desc", product: "asc", tons: "asc" }};
+    const sortState = {{ name: "desc", product: "asc", tons: "asc", amount: "asc" }};
 
     const getCellValue = (row, key) => {{
       const cell = row.querySelector(`[data-key="${{key}}"]`);
