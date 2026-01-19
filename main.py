@@ -1799,9 +1799,14 @@ async def main() -> None:
             )
             return
         await state.update_data(order_id=order_id)
+        confirmation_text = (
+            "❗ Buyurtmani o'chirmoqchimisiz? Bu amal qaytarilmaydi.\n\n"
+            f"{format_admin_order_details(order)}"
+        )
         await message.answer(
-            "❗ Buyurtmani o'chirmoqchimisiz? Bu amal qaytarilmaydi.",
+            confirmation_text,
             reply_markup=order_delete_confirm_keyboard(),
+            parse_mode="HTML",
         )
         await state.set_state(OrderDeleteStates.confirm)
 
