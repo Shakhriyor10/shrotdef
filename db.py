@@ -347,6 +347,65 @@ def add_order(
         return int(cur.lastrowid)
 
 
+def add_manual_user(name: str, phone: str, admin_id: int) -> int:
+    now = datetime.utcnow().isoformat()
+    base_id = -int(datetime.utcnow().timestamp() * 1000) * 1000 - admin_id
+    for offset in range(5):
+        tg_id = base_id - offset
+        try:
+            with get_connection() as conn:
+                cur = conn.execute(
+                    """
+                    INSERT INTO users (tg_id, first_name, last_name, phone, created_at, last_active)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (tg_id, name, None, phone, now, now),
+                )
+            return int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            continue
+    raise RuntimeError("Failed to create a manual user record.")
+
+
+def add_admin_order(
+    user_id: int,
+    product_id: int,
+    quantity: str,
+    address: str,
+    order_price_per_kg: float,
+    admin_id: int,
+) -> int:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO orders (
+                user_id,
+                product_id,
+                quantity,
+                address,
+                created_at,
+                status,
+                order_price_per_kg,
+                closed_at,
+                closed_by
+            )
+            VALUES (?, ?, ?, ?, ?, 'closed', ?, ?, ?)
+            """,
+            (
+                user_id,
+                product_id,
+                quantity,
+                address,
+                now,
+                order_price_per_kg,
+                now,
+                admin_id,
+            ),
+        )
+        return int(cur.lastrowid)
+
+
 def update_order_status(
     order_id: int,
     new_status: str,

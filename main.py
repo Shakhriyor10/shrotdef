@@ -56,11 +56,21 @@ BTN_SKIP_PHOTOS = "⏭ O'tkazish"
 BTN_BLOCK_USERS = "🚫 Bloklash/ochish"
 BTN_BLOCK = "🔒 Bloklash"
 BTN_UNBLOCK = "🔓 Blokdan chiqarish"
+BTN_CREATE_ORDER = "📝 Buyurtma yaratish"
 
 
 class OrderStates(StatesGroup):
     quantity = State()
     address = State()
+    confirm = State()
+
+
+class AdminOrderStates(StatesGroup):
+    name = State()
+    phone = State()
+    address = State()
+    product = State()
+    quantity = State()
     confirm = State()
 
 
@@ -161,6 +171,7 @@ def user_keyboard(user_id: int, is_admin_override: Optional[bool] = None) -> Rep
         rows.append([KeyboardButton(text=BTN_SUPPORT)])
     if is_admin_user:
         rows.append([KeyboardButton(text=BTN_STATS), KeyboardButton(text=BTN_ORDERS_LIST)])
+        rows.append([KeyboardButton(text=BTN_CREATE_ORDER)])
     if can_view_reports(user_id):
         rows.append([KeyboardButton(text=BTN_REPORTS)])
     if is_admin_user:
@@ -356,6 +367,23 @@ def order_confirm_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="order_cancel")],
         ]
     )
+
+
+def admin_order_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Ha", callback_data="admin_order_confirm")],
+            [InlineKeyboardButton(text="❌ Yo'q", callback_data="admin_order_cancel")],
+        ]
+    )
+
+
+def admin_order_products_keyboard(products: list[sqlite3.Row]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=product["name"], callback_data=f"admin_order_product:{product['id']}")]
+        for product in products
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def format_location_link(latitude: Optional[float], longitude: Optional[float]) -> Optional[str]:
@@ -1143,6 +1171,170 @@ async def main() -> None:
 
     @dp.callback_query(F.data == "order_cancel")
     async def cancel_order(callback: types.CallbackQuery, state: FSMContext) -> None:
+        await state.clear()
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer(
+                "❌ Buyurtma bekor qilindi.", reply_markup=user_keyboard(callback.from_user.id)
+            )
+        await callback.answer("❌ Bekor qilindi")
+
+    @dp.message(F.text == BTN_CREATE_ORDER)
+    async def start_admin_order(message: types.Message, state: FSMContext) -> None:
+        if not is_admin(message.from_user.id):
+            return
+        await state.clear()
+        await message.answer("👤 Mijoz ismini kiriting.", reply_markup=cancel_keyboard())
+        await state.set_state(AdminOrderStates.name)
+
+    @dp.message(AdminOrderStates.name)
+    async def admin_order_name(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        name = (message.text or "").strip()
+        if not name:
+            await message.answer("⚠️ Iltimos, mijoz ismini kiriting.", reply_markup=cancel_keyboard())
+            return
+        await state.update_data(client_name=name)
+        await message.answer("📞 Mijoz telefon raqamini kiriting.", reply_markup=cancel_keyboard())
+        await state.set_state(AdminOrderStates.phone)
+
+    @dp.message(AdminOrderStates.phone)
+    async def admin_order_phone(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        phone = (message.text or "").strip()
+        if not phone:
+            await message.answer("⚠️ Telefon raqamini kiriting.", reply_markup=cancel_keyboard())
+            return
+        await state.update_data(client_phone=phone)
+        await message.answer("📍 Mijoz manzilini kiriting.", reply_markup=cancel_keyboard())
+        await state.set_state(AdminOrderStates.address)
+
+    @dp.message(AdminOrderStates.address)
+    async def admin_order_address(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        address = (message.text or "").strip()
+        if not address:
+            await message.answer("⚠️ Manzilni kiriting.", reply_markup=cancel_keyboard())
+            return
+        products = db.list_products()
+        if not products:
+            await state.clear()
+            await message.answer("📭 Mahsulotlar mavjud emas.", reply_markup=user_keyboard(message.from_user.id))
+            return
+        await state.update_data(address=address)
+        await message.answer(
+            "📦 Mahsulotni tanlang:",
+            reply_markup=admin_order_products_keyboard(list(products)),
+        )
+        await state.set_state(AdminOrderStates.product)
+
+    @dp.message(AdminOrderStates.product)
+    async def admin_order_product_text(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        await message.answer("⚠️ Mahsulotni tanlash uchun tugmalardan foydalaning.")
+
+    @dp.callback_query(F.data.startswith("admin_order_product:"))
+    async def admin_order_product(callback: types.CallbackQuery, state: FSMContext) -> None:
+        current_state = await state.get_state()
+        if current_state != AdminOrderStates.product:
+            await callback.answer()
+            return
+        product_id = int(callback.data.split(":", 1)[1])
+        product = db.get_product(product_id)
+        if not product:
+            await callback.answer("❌ Mahsulot topilmadi", show_alert=True)
+            return
+        await state.update_data(product_id=product_id)
+        if callback.message:
+            await callback.message.answer(
+                "⚖️ Buyurtma vaznini kiriting (masalan: 2.3 yoki 2,3 tonna).",
+                reply_markup=cancel_keyboard(),
+            )
+        await state.set_state(AdminOrderStates.quantity)
+        await callback.answer()
+
+    @dp.message(AdminOrderStates.quantity)
+    async def admin_order_quantity(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await cancel_admin_action(message, state)
+            return
+        qty_tons = parse_quantity_to_tons(message.text or "")
+        if qty_tons is None or qty_tons <= 0:
+            await message.answer(
+                "⚠️ Miqdorni to'g'ri kiriting (masalan: 2, 2.3 yoki 2,3).",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        normalized_quantity = f"{format_price(qty_tons)} tonna"
+        await state.update_data(quantity=normalized_quantity)
+        await send_admin_order_confirmation(message, state)
+
+    async def send_admin_order_confirmation(message: types.Message, state: FSMContext) -> None:
+        data = await state.get_data()
+        product = db.get_product(data["product_id"])
+        if not product:
+            await message.answer("❌ Mahsulot topilmadi.")
+            await state.clear()
+            return
+        lines = [
+            "🧾 Buyurtma ma'lumotlari:",
+            f"👤 Mijoz: {escape(data['client_name'])}",
+            f"📞 Telefon: {escape(data['client_phone'])}",
+            f"📍 Manzil: {escape(data['address'])}",
+            f"📦 Mahsulot: {escape(product['name'])}",
+            f"⚖️ Miqdor: {escape(data['quantity'])}",
+            f"💰 Narx (1 kg): {escape(format_price(product['price_per_kg']))} сум",
+            f"💵 Jami: {escape(format_deal_price(data['quantity'], product['price_per_kg']))}",
+            "",
+            "Buyurtmani yaratishni tasdiqlaysizmi? Buyurtma «Yopilgan» holatida yaratiladi.",
+        ]
+        await message.answer(
+            "\n".join(lines),
+            reply_markup=admin_order_confirm_keyboard(),
+            parse_mode="HTML",
+        )
+        await state.set_state(AdminOrderStates.confirm)
+
+    @dp.callback_query(F.data == "admin_order_confirm")
+    async def confirm_admin_order(callback: types.CallbackQuery, state: FSMContext) -> None:
+        current_state = await state.get_state()
+        if current_state != AdminOrderStates.confirm:
+            await callback.answer()
+            return
+        data = await state.get_data()
+        product = db.get_product(data["product_id"])
+        if not product:
+            await callback.answer("❌ Mahsulot topilmadi", show_alert=True)
+            await state.clear()
+            return
+        user_id = db.add_manual_user(data["client_name"], data["client_phone"], callback.from_user.id)
+        order_id = db.add_admin_order(
+            user_id,
+            product["id"],
+            data["quantity"],
+            data["address"],
+            product["price_per_kg"],
+            callback.from_user.id,
+        )
+        await state.clear()
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer(
+                f"✅ Buyurtma yaratildi va yopildi. 🆔 ID: {order_id}",
+                reply_markup=user_keyboard(callback.from_user.id),
+            )
+        await callback.answer("✅ Buyurtma yaratildi")
+
+    @dp.callback_query(F.data == "admin_order_cancel")
+    async def cancel_admin_order(callback: types.CallbackQuery, state: FSMContext) -> None:
         await state.clear()
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
