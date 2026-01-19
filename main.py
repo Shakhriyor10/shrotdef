@@ -96,6 +96,11 @@ class OrderSearchStates(StatesGroup):
     order_id = State()
 
 
+class OrderDeleteStates(StatesGroup):
+    order_id = State()
+    confirm = State()
+
+
 class SupportStates(StatesGroup):
     waiting_message = State()
 
@@ -321,6 +326,7 @@ def orders_status_keyboard() -> InlineKeyboardMarkup:
             ],
             [InlineKeyboardButton(text="❌ Bekor qilingan statuslar", callback_data="orders:canceled:0")],
             [InlineKeyboardButton(text="🔎 ID bo'yicha qidirish", callback_data="orders:search")],
+            [InlineKeyboardButton(text="🗑 Buyurtmani o'chirish", callback_data="orders:delete")],
         ]
     )
 
@@ -339,6 +345,15 @@ def order_cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Ha, bekor qilish", callback_data=f"orders:cancel_confirm:{order_id}")],
             [InlineKeyboardButton(text="↩️ Yo'q", callback_data=f"orders:cancel_keep:{order_id}")],
+        ]
+    )
+
+
+def order_delete_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Ha, o'chirish", callback_data="orders:delete_confirm")],
+            [InlineKeyboardButton(text="↩️ Yo'q", callback_data="orders:delete_keep")],
         ]
     )
 
@@ -1748,6 +1763,90 @@ async def main() -> None:
             reply_markup=cancel_keyboard(),
         )
         await callback.answer()
+
+    @dp.callback_query(F.data == "orders:delete")
+    async def prompt_order_delete(callback: types.CallbackQuery, state: FSMContext) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        await state.set_state(OrderDeleteStates.order_id)
+        await callback.message.answer(
+            "🗑 O'chirish uchun buyurtma ID raqamini kiriting.",
+            reply_markup=cancel_keyboard(),
+        )
+        await callback.answer()
+
+    @dp.message(OrderDeleteStates.order_id)
+    async def handle_order_delete_id(message: types.Message, state: FSMContext) -> None:
+        if is_cancel_message(message):
+            await state.clear()
+            await message.answer("❌ O'chirish bekor qilindi.", reply_markup=user_keyboard(message.from_user.id))
+            return
+        search_text = message.text or ""
+        match = re.search(r"\d+", search_text)
+        if not match:
+            await message.answer(
+                "⚠️ Iltimos, buyurtma ID raqamini kiriting.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        order_id = int(match.group())
+        order = db.get_order_with_details(order_id)
+        if not order:
+            await message.answer(
+                "🔎 Buyurtma topilmadi. Qayta urinib ko'ring.",
+                reply_markup=cancel_keyboard(),
+            )
+            return
+        await state.update_data(order_id=order_id)
+        confirmation_text = (
+            "❗ Buyurtmani o'chirmoqchimisiz? Bu amal qaytarilmaydi.\n\n"
+            f"{format_admin_order_details(order)}"
+        )
+        await message.answer(
+            confirmation_text,
+            reply_markup=order_delete_confirm_keyboard(),
+            parse_mode="HTML",
+        )
+        await state.set_state(OrderDeleteStates.confirm)
+
+    @dp.callback_query(OrderDeleteStates.confirm, F.data == "orders:delete_confirm")
+    async def confirm_order_delete(callback: types.CallbackQuery, state: FSMContext) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        data = await state.get_data()
+        order_id = data.get("order_id")
+        if not order_id:
+            await state.clear()
+            await callback.answer("⚠️ Buyurtma topilmadi.", show_alert=True)
+            return
+        removed = db.delete_order(order_id)
+        await state.clear()
+        if not removed:
+            await callback.answer("🔎 Buyurtma topilmadi.", show_alert=True)
+            return
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer(
+                f"✅ Buyurtma o'chirildi. ID: {order_id}",
+                reply_markup=user_keyboard(callback.from_user.id),
+            )
+        await callback.answer("✅ Buyurtma o'chirildi")
+
+    @dp.callback_query(OrderDeleteStates.confirm, F.data == "orders:delete_keep")
+    async def cancel_order_delete(callback: types.CallbackQuery, state: FSMContext) -> None:
+        if not is_admin(callback.from_user.id):
+            await callback.answer()
+            return
+        await state.clear()
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer(
+                "↩️ Buyurtmani o'chirish bekor qilindi.",
+                reply_markup=user_keyboard(callback.from_user.id),
+            )
+        await callback.answer("↩️ Bekor qilindi")
 
     @dp.message(OrderSearchStates.order_id)
     async def handle_order_search(message: types.Message, state: FSMContext) -> None:
