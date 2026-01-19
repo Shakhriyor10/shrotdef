@@ -1378,6 +1378,7 @@ async def main() -> None:
             client_name = format_user_name(user["first_name"], user["last_name"])
             await state.update_data(
                 user_id=user["id"],
+                client_tg_id=user["tg_id"],
                 client_name=client_name,
                 client_phone=user["phone"] or phone,
             )
@@ -1504,6 +1505,24 @@ async def main() -> None:
             product["price_per_kg"],
             callback.from_user.id,
         )
+        client_tg_id = data.get("client_tg_id")
+        if client_tg_id and client_tg_id > 0:
+            order_lines = [
+                "🧾 Siz uchun buyurtma yaratildi:",
+                f"🆔 Buyurtma ID: {order_id}",
+                f"👤 Mijoz: {escape(data['client_name'])}",
+                f"📞 Telefon: {escape(data['client_phone'])}",
+                f"📍 Manzil: {escape(data['address'])}",
+                f"📦 Mahsulot: {escape(product['name'])}",
+                f"⚖️ Miqdor: {escape(data['quantity'])}",
+                f"💰 Narx (1 kg): {escape(format_price(product['price_per_kg']))} сум",
+                f"💵 Jami: {escape(format_deal_price(data['quantity'], product['price_per_kg']))}",
+                "📌 Holat: Yopilgan",
+            ]
+            try:
+                await bot.send_message(client_tg_id, "\n".join(order_lines), parse_mode="HTML")
+            except Exception:
+                pass
         await state.clear()
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
