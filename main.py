@@ -7,7 +7,7 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from html import escape
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional
 
@@ -529,11 +529,11 @@ def parse_report_date(value: str) -> Optional[datetime]:
     return None
 
 
-def build_report_html(
-    rows: list[sqlite3.Row],
-    start_date: datetime,
-    end_date: datetime,
-) -> str:
+def format_report_period(start_date: datetime, end_date: datetime) -> str:
+    return f"{start_date.strftime('%Y-%m-%d')} — {end_date.strftime('%Y-%m-%d')}"
+
+
+def calculate_report_stats(rows: list[sqlite3.Row]) -> tuple[float, list[dict[str, object]]]:
     per_user: dict[int, dict[str, object]] = {}
     total_sum = 0.0
     for row in rows:
@@ -553,11 +553,47 @@ def build_report_html(
         )
         user_entry["count"] += 1
         user_entry["amount"] += amount
+    sorted_users = [
+        entry
+        for _, entry in sorted(per_user.items(), key=lambda item: item[1]["amount"], reverse=True)
+    ]
+    return total_sum, sorted_users
+
+
+def build_report_summary_text(
+    rows: list[sqlite3.Row],
+    start_date: datetime,
+    end_date: datetime,
+    limit: int = 10,
+) -> str:
+    total_sum, entries = calculate_report_stats(rows)
+    period_label = format_report_period(start_date, end_date)
+    total_label = format_money_with_commas(total_sum)
+    lines = [
+        "📑 Hisobot",
+        f"📅 Davr: {period_label}",
+        f"💵 Umumiy summa: {total_label} so'm",
+    ]
+    if not entries:
+        lines.append("📭 Ma'lumot topilmadi.")
+        return "\n".join(lines)
+    lines.append("👥 Top mijozlar:")
+    for idx, entry in enumerate(entries[:limit], start=1):
+        amount_label = format_money_with_commas(entry["amount"])
+        lines.append(
+            f"{idx}. {entry['name']} — {entry['count']} ta, {amount_label} so'm"
+        )
+    return "\n".join(lines)
+
+
+def build_report_html(
+    rows: list[sqlite3.Row],
+    start_date: datetime,
+    end_date: datetime,
+) -> str:
+    total_sum, entries = calculate_report_stats(rows)
     rows_html = []
-    for idx, (_, entry) in enumerate(
-        sorted(per_user.items(), key=lambda item: item[1]["amount"], reverse=True),
-        start=1,
-    ):
+    for idx, entry in enumerate(entries, start=1):
         rows_html.append(
             "<tr>"
             f"<td data-label=\"#\">{idx}</td>"
@@ -580,7 +616,7 @@ def build_report_html(
             "Ma'lumot topilmadi"
             "</td></tr>"
         )
-    period_label = f"{start_date.strftime('%Y-%m-%d')} — {end_date.strftime('%Y-%m-%d')}"
+    period_label = format_report_period(start_date, end_date)
     total_label = escape(format_money_with_commas(total_sum))
     return f"""<!DOCTYPE html>
 <html lang="uz">
@@ -835,6 +871,96 @@ def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
     if qty_kg is None:
         return "⚠️ Hisoblab bo'lmadi"
     return f"{format_money_with_commas(qty_kg * price_per_kg)} сум"
+
+
+def report_period_keyboard() -> InlineKeyboardMarkup:
+    today = datetime.now()
+    current_month_label = today.strftime("%Y-%m")
+    prev_month = today.replace(day=1) - timedelta(days=1)
+    prev_month_label = prev_month.strftime("%Y-%m")
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"📅 Joriy oy ({current_month_label})",
+                    callback_data="report_period:current_month",
+                ),
+                InlineKeyboardButton(
+                    text=f"📅 Oldingi oy ({prev_month_label})",
+                    callback_data="report_period:previous_month",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"📅 {today.year} yil",
+                    callback_data="report_period:current_year",
+                ),
+                InlineKeyboardButton(
+                    text=f"📅 {today.year - 1} yil",
+                    callback_data="report_period:previous_year",
+                ),
+            ],
+        ]
+    )
+
+
+def get_month_range(reference: datetime, offset: int) -> tuple[datetime, datetime]:
+    year = reference.year
+    month = reference.month + offset
+    while month < 1:
+        month += 12
+        year -= 1
+    while month > 12:
+        month -= 12
+        year += 1
+    start = datetime(year, month, 1)
+    if month == 12:
+        next_month = datetime(year + 1, 1, 1)
+    else:
+        next_month = datetime(year, month + 1, 1)
+    end = next_month - timedelta(days=1)
+    return start, end
+
+
+def get_year_range(year: int) -> tuple[datetime, datetime]:
+    return datetime(year, 1, 1), datetime(year, 12, 31)
+
+
+async def send_report_for_period(
+    bot: Bot,
+    chat_id: int,
+    user_id: int,
+    start_date: datetime,
+    end_date: datetime,
+) -> None:
+    rows = list(
+        db.list_orders_for_report(
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+        )
+    )
+    summary_text = build_report_summary_text(rows, start_date, end_date)
+    period_label = format_report_period(start_date, end_date)
+    timestamp = int(datetime.utcnow().timestamp())
+    file_path = f"report_{user_id}_{timestamp}.html"
+    report_html = build_report_html(rows, start_date, end_date)
+    with open(file_path, "w", encoding="utf-8") as handle:
+        handle.write(report_html)
+    try:
+        await bot.send_message(
+            chat_id,
+            summary_text,
+            reply_markup=user_keyboard(user_id),
+        )
+        await bot.send_document(
+            chat_id,
+            types.FSInputFile(file_path),
+            caption=f"📑 Hisobot tayyor.\nDavr: {period_label}",
+            reply_markup=user_keyboard(user_id),
+        )
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
@@ -1582,9 +1708,43 @@ async def main() -> None:
             return
         await state.set_state(ReportStates.start_date)
         await message.answer(
-            "📅 Hisobot uchun boshlanish sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).",
+            "📅 Hisobot davrini tanlang yoki boshlanish sanasini kiriting "
+            "(YYYY-MM-DD yoki DD.MM.YYYY).",
+            reply_markup=report_period_keyboard(),
+        )
+        await message.answer(
+            "✍️ Sana kiritish uchun: boshlanish sanasini yuboring.",
             reply_markup=cancel_keyboard(),
         )
+
+    @dp.callback_query(F.data.startswith("report_period:"))
+    async def report_quick_period(callback: types.CallbackQuery, state: FSMContext) -> None:
+        if not can_view_reports(callback.from_user.id):
+            await callback.answer()
+            return
+        period_key = callback.data.split(":", 1)[1]
+        now = datetime.now()
+        if period_key == "current_month":
+            start_date, end_date = get_month_range(now, 0)
+        elif period_key == "previous_month":
+            start_date, end_date = get_month_range(now, -1)
+        elif period_key == "current_year":
+            start_date, end_date = get_year_range(now.year)
+        elif period_key == "previous_year":
+            start_date, end_date = get_year_range(now.year - 1)
+        else:
+            await callback.answer("⚠️ Davr topilmadi.", show_alert=True)
+            return
+        await state.clear()
+        if callback.message:
+            await send_report_for_period(
+                callback.message.bot,
+                callback.message.chat.id,
+                callback.from_user.id,
+                start_date,
+                end_date,
+            )
+        await callback.answer()
 
     @dp.message(ReportStates.start_date)
     async def report_start_date(message: types.Message, state: FSMContext) -> None:
@@ -1625,26 +1785,13 @@ async def main() -> None:
                 reply_markup=cancel_keyboard(),
             )
             return
-        rows = list(
-            db.list_orders_for_report(
-                start_date.strftime("%Y-%m-%d"),
-                end_date.strftime("%Y-%m-%d"),
-            )
+        await send_report_for_period(
+            message.bot,
+            message.chat.id,
+            message.from_user.id,
+            start_date,
+            end_date,
         )
-        report_html = build_report_html(rows, start_date, end_date)
-        timestamp = int(datetime.utcnow().timestamp())
-        file_path = f"report_{message.from_user.id}_{timestamp}.html"
-        with open(file_path, "w", encoding="utf-8") as handle:
-            handle.write(report_html)
-        try:
-            await message.answer_document(
-                types.FSInputFile(file_path),
-                caption="📑 Hisobot tayyor.",
-                reply_markup=user_keyboard(message.from_user.id),
-            )
-        finally:
-            if os.path.exists(file_path):
-                os.remove(file_path)
         await state.clear()
 
     @dp.message(F.text == BTN_ORDERS_LIST)
