@@ -841,6 +841,7 @@ def build_report_html(
   <script>
     const tbody = document.querySelector("tbody");
     const rows = Array.from(tbody.querySelectorAll("tr"));
+    const totalElement = document.querySelector(".total");
     const sortState = {{ name: "desc", product: "asc", tons: "asc", amount: "asc" }};
 
     const getCellValue = (row, key) => {{
@@ -851,6 +852,40 @@ def build_report_html(
       }}
       const num = parseFloat(cell.dataset.value || "0");
       return Number.isNaN(num) ? 0 : num;
+    }};
+
+    const formatNumber = (value) => {{
+      if (Math.abs(value - Math.round(value)) < 1e-9) {{
+        return Math.round(value).toLocaleString("en-US");
+      }}
+      return value.toLocaleString("en-US", {{
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }});
+    }};
+
+    const updateTotals = () => {{
+      let sum = 0;
+      let tons = 0;
+      rows.forEach((row) => {{
+        if (row.style.display === "none") {{
+          return;
+        }}
+        const amountCell = row.querySelector('[data-key="amount"]');
+        const tonsCell = row.querySelector('[data-key="tons"]');
+        if (!amountCell || !tonsCell) {{
+          return;
+        }}
+        const amountValue = parseFloat(amountCell.dataset.value || "0");
+        const tonsValue = parseFloat(tonsCell.dataset.value || "0");
+        if (!Number.isNaN(amountValue)) {{
+          sum += amountValue;
+        }}
+        if (!Number.isNaN(tonsValue)) {{
+          tons += tonsValue;
+        }}
+      }});
+      totalElement.textContent = `Umumiy summa: ${{formatNumber(sum)}} so'm · Jami tonna: ${{formatNumber(tons)}} t`;
     }};
 
     const sortRows = (key) => {{
@@ -885,7 +920,10 @@ def build_report_html(
         const rowText = row.textContent.toLowerCase();
         row.style.display = rowText.includes(query) ? "" : "none";
       }});
+      updateTotals();
     }});
+
+    updateTotals();
   </script>
 </body>
 </html>"""
