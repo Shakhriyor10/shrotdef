@@ -253,7 +253,10 @@ def is_cancel_message(message: types.Message) -> bool:
 
 
 def normalize_phone(value: str) -> str:
-    return "".join(char for char in value if char.isdigit())
+    digits = "".join(char for char in value if char.isdigit())
+    if digits.startswith("998") and len(digits) >= 12:
+        return digits[-9:]
+    return digits
 
 
 def find_user_by_phone(value: str) -> Optional[sqlite3.Row]:
@@ -272,6 +275,11 @@ def format_user_contact(first_name: Optional[str], last_name: Optional[str], pho
     full_name = " ".join(name_parts) if name_parts else "Noma'lum foydalanuvchi"
     phone_display = phone or "📞 Telefon yo'q"
     return f"{full_name} ({phone_display})"
+
+
+def format_user_name(first_name: Optional[str], last_name: Optional[str]) -> str:
+    name_parts = [part for part in [first_name, last_name] if part]
+    return " ".join(name_parts) if name_parts else "Noma'lum foydalanuvchi"
 
 
 async def cancel_admin_action(message: types.Message, state: FSMContext) -> None:
@@ -1339,8 +1347,8 @@ async def main() -> None:
         if not is_admin(message.from_user.id):
             return
         await state.clear()
-        await message.answer("👤 Mijoz ismini kiriting.", reply_markup=cancel_keyboard())
-        await state.set_state(AdminOrderStates.name)
+        await message.answer("📞 Mijoz telefon raqamini kiriting.", reply_markup=cancel_keyboard())
+        await state.set_state(AdminOrderStates.phone)
 
     @dp.message(AdminOrderStates.name)
     async def admin_order_name(message: types.Message, state: FSMContext) -> None:
@@ -1352,8 +1360,8 @@ async def main() -> None:
             await message.answer("⚠️ Iltimos, mijoz ismini kiriting.", reply_markup=cancel_keyboard())
             return
         await state.update_data(client_name=name)
-        await message.answer("📞 Mijoz telefon raqamini kiriting.", reply_markup=cancel_keyboard())
-        await state.set_state(AdminOrderStates.phone)
+        await message.answer("📍 Mijoz manzilini kiriting.", reply_markup=cancel_keyboard())
+        await state.set_state(AdminOrderStates.address)
 
     @dp.message(AdminOrderStates.phone)
     async def admin_order_phone(message: types.Message, state: FSMContext) -> None:
@@ -1361,12 +1369,27 @@ async def main() -> None:
             await cancel_admin_action(message, state)
             return
         phone = (message.text or "").strip()
-        if not phone:
+        normalized_phone = normalize_phone(phone)
+        if not normalized_phone:
             await message.answer("⚠️ Telefon raqamini kiriting.", reply_markup=cancel_keyboard())
             return
+        user = find_user_by_phone(phone)
+        if user:
+            client_name = format_user_name(user["first_name"], user["last_name"])
+            await state.update_data(
+                user_id=user["id"],
+                client_name=client_name,
+                client_phone=user["phone"] or phone,
+            )
+            await message.answer(
+                f"✅ Mijoz topildi: {client_name}. 📍 Manzilni kiriting.",
+                reply_markup=cancel_keyboard(),
+            )
+            await state.set_state(AdminOrderStates.address)
+            return
         await state.update_data(client_phone=phone)
-        await message.answer("📍 Mijoz manzilini kiriting.", reply_markup=cancel_keyboard())
-        await state.set_state(AdminOrderStates.address)
+        await message.answer("👤 Mijoz ismini kiriting.", reply_markup=cancel_keyboard())
+        await state.set_state(AdminOrderStates.name)
 
     @dp.message(AdminOrderStates.address)
     async def admin_order_address(message: types.Message, state: FSMContext) -> None:
@@ -1470,7 +1493,9 @@ async def main() -> None:
             await callback.answer("❌ Mahsulot topilmadi", show_alert=True)
             await state.clear()
             return
-        user_id = db.add_manual_user(data["client_name"], data["client_phone"], callback.from_user.id)
+        user_id = data.get("user_id")
+        if not user_id:
+            user_id = db.add_manual_user(data["client_name"], data["client_phone"], callback.from_user.id)
         order_id = db.add_admin_order(
             user_id,
             product["id"],
