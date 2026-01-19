@@ -7,7 +7,8 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from html import escape
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass
 from typing import Optional
 
@@ -25,6 +26,16 @@ import db
 ADMIN_LIST = {960217500, 8359092913, 5950335991, 45152058, 7746040125}
 GROUP_LIST = {-1003580758940,}
 REPORT_LIST = {960217500,}
+
+
+def get_tashkent_tz() -> timezone:
+    try:
+        return ZoneInfo("Asia/Tashkent")
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=5))
+
+
+TASHKENT_TZ = get_tashkent_tz()
 
 INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
@@ -493,7 +504,10 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
 
 def format_order_datetime(value: str) -> str:
     try:
-        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(TASHKENT_TZ).strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return value
 
@@ -874,7 +888,7 @@ def format_deal_price(quantity: str, price_per_kg: Optional[float]) -> str:
 
 
 def report_period_keyboard() -> InlineKeyboardMarkup:
-    today = datetime.now()
+    today = datetime.now(TASHKENT_TZ)
     current_month_label = today.strftime("%Y-%m")
     prev_month = today.replace(day=1) - timedelta(days=1)
     prev_month_label = prev_month.strftime("%Y-%m")

@@ -1,8 +1,23 @@
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Iterable, Optional
 
 DB_PATH = "bot.sqlite3"
+
+
+def get_tashkent_tz() -> timezone:
+    try:
+        return ZoneInfo("Asia/Tashkent")
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=5))
+
+
+TASHKENT_TZ = get_tashkent_tz()
+
+
+def now_tashkent() -> datetime:
+    return datetime.now(TASHKENT_TZ)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -140,7 +155,7 @@ def init_db() -> None:
 
 
 def add_or_update_user(tg_id: int, first_name: str, last_name: Optional[str]) -> None:
-    now = datetime.utcnow().isoformat()
+    now = now_tashkent().isoformat()
     with get_connection() as conn:
         existing = conn.execute(
             "SELECT id FROM users WHERE tg_id = ?", (tg_id,)
@@ -173,7 +188,7 @@ def update_user_phone(tg_id: int, phone: str) -> None:
 
 
 def update_last_active(tg_id: int) -> None:
-    now = datetime.utcnow().isoformat()
+    now = now_tashkent().isoformat()
     with get_connection() as conn:
         conn.execute(
             """
@@ -316,7 +331,7 @@ def add_order(
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
 ) -> int:
-    now = datetime.utcnow().isoformat()
+    now = now_tashkent().isoformat()
     with get_connection() as conn:
         cur = conn.execute(
             """
@@ -348,8 +363,8 @@ def add_order(
 
 
 def add_manual_user(name: str, phone: str, admin_id: int) -> int:
-    now = datetime.utcnow().isoformat()
-    base_id = -int(datetime.utcnow().timestamp() * 1000) * 1000 - admin_id
+    now = now_tashkent().isoformat()
+    base_id = -int(now_tashkent().timestamp() * 1000) * 1000 - admin_id
     for offset in range(5):
         tg_id = base_id - offset
         try:
@@ -375,7 +390,7 @@ def add_admin_order(
     order_price_per_kg: float,
     admin_id: int,
 ) -> int:
-    now = datetime.utcnow().isoformat()
+    now = now_tashkent().isoformat()
     with get_connection() as conn:
         cur = conn.execute(
             """
@@ -411,7 +426,7 @@ def update_order_status(
     new_status: str,
     admin_id: int,
 ) -> tuple[bool, Optional[str], Optional[int], Optional[str]]:
-    now = datetime.utcnow().isoformat()
+    now = now_tashkent().isoformat()
     with get_connection() as conn:
         row = conn.execute(
             "SELECT status, closed_by, canceled_by_role FROM orders WHERE id = ?",
