@@ -555,55 +555,72 @@ def format_report_period(start_date: datetime, end_date: datetime) -> str:
     return f"{start_date.strftime('%Y-%m-%d')} — {end_date.strftime('%Y-%m-%d')}"
 
 
-def calculate_report_stats(rows: list[sqlite3.Row]) -> tuple[float, list[dict[str, object]]]:
-    per_user: dict[int, dict[str, object]] = {}
+def format_tons(value: float) -> str:
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def calculate_report_stats(
+    rows: list[sqlite3.Row],
+) -> tuple[float, float, list[dict[str, object]]]:
+    per_client_product: dict[tuple[int, str], dict[str, object]] = {}
     total_sum = 0.0
+    total_tons = 0.0
     for row in rows:
         qty_kg = parse_quantity_to_kg(row["quantity"])
         price_per_kg = row["order_price_per_kg"] or row["product_price_per_kg"]
         if qty_kg is None or price_per_kg is None:
             continue
         amount = qty_kg * price_per_kg
+        tons = qty_kg / 1000
         total_sum += amount
-        user_entry = per_user.setdefault(
-            row["user_id"],
+        total_tons += tons
+        key = (row["user_id"], row["product_name"])
+        entry = per_client_product.setdefault(
+            key,
             {
                 "name": format_user_contact(row["first_name"], row["last_name"], row["phone"]),
-                "count": 0,
+                "product": row["product_name"],
+                "tons": 0.0,
                 "amount": 0.0,
             },
         )
-        user_entry["count"] += 1
-        user_entry["amount"] += amount
-    sorted_users = [
-        entry
-        for _, entry in sorted(per_user.items(), key=lambda item: item[1]["amount"], reverse=True)
-    ]
-    return total_sum, sorted_users
+        entry["tons"] += tons
+        entry["amount"] += amount
+    sorted_entries = sorted(
+        per_client_product.values(),
+        key=lambda item: item["amount"],
+        reverse=True,
+    )
+    return total_sum, total_tons, sorted_entries
 
 
 def build_report_summary_text(
     rows: list[sqlite3.Row],
     start_date: datetime,
     end_date: datetime,
-    limit: int = 10,
+    limit: int = 20,
 ) -> str:
-    total_sum, entries = calculate_report_stats(rows)
+    total_sum, total_tons, entries = calculate_report_stats(rows)
     period_label = format_report_period(start_date, end_date)
-    total_label = format_money_with_commas(total_sum)
+    total_sum_label = format_money_with_commas(total_sum)
+    total_tons_label = format_tons(total_tons)
     lines = [
         "📑 Hisobot",
         f"📅 Davr: {period_label}",
-        f"💵 Umumiy summa: {total_label} so'm",
+        f"💵 Umumiy summa: {total_sum_label} so'm",
+        f"⚖️ Jami tonna: {total_tons_label} t",
     ]
     if not entries:
         lines.append("📭 Ma'lumot topilmadi.")
         return "\n".join(lines)
-    lines.append("👥 Top mijozlar:")
+    lines.append("📌 Mijozlar va mahsulotlar:")
     for idx, entry in enumerate(entries[:limit], start=1):
         amount_label = format_money_with_commas(entry["amount"])
         lines.append(
-            f"{idx}. {entry['name']} — {entry['count']} ta, {amount_label} so'm"
+            f"{idx}. {entry['name']} — {entry['product']}: "
+            f"{format_tons(entry['tons'])} t, {amount_label} so'm"
         )
     return "\n".join(lines)
 
@@ -613,7 +630,7 @@ def build_report_html(
     start_date: datetime,
     end_date: datetime,
 ) -> str:
-    total_sum, entries = calculate_report_stats(rows)
+    total_sum, total_tons, entries = calculate_report_stats(rows)
     rows_html = []
     for idx, entry in enumerate(entries, start=1):
         rows_html.append(
@@ -622,9 +639,12 @@ def build_report_html(
             f"<td data-label=\"Mijoz\" data-key=\"name\" data-value=\"{escape(entry['name'])}\">"
             f"{escape(entry['name'])}"
             "</td>"
-            "<td data-label=\"Buyurtmalar soni\" data-key=\"count\" "
-            f"data-value=\"{entry['count']}\" style=\"text-align:center;\">"
-            f"{entry['count']}"
+            f"<td data-label=\"Mahsulot\" data-key=\"product\" data-value=\"{escape(entry['product'])}\">"
+            f"{escape(entry['product'])}"
+            "</td>"
+            "<td data-label=\"Tonna (t)\" data-key=\"tons\" "
+            f"data-value=\"{entry['tons']}\" style=\"text-align:right;\">"
+            f"{escape(format_tons(entry['tons']))}"
             "</td>"
             "<td data-label=\"Jami summa (so'm)\" data-key=\"amount\" "
             f"data-value=\"{entry['amount']}\" style=\"text-align:right;\">"
@@ -634,12 +654,13 @@ def build_report_html(
         )
     if not rows_html:
         rows_html.append(
-            "<tr><td colspan=\"4\" style=\"text-align:center; padding: 16px;\">"
+            "<tr><td colspan=\"5\" style=\"text-align:center; padding: 16px;\">"
             "Ma'lumot topilmadi"
             "</td></tr>"
         )
     period_label = format_report_period(start_date, end_date)
-    total_label = escape(format_money_with_commas(total_sum))
+    total_sum_label = escape(format_money_with_commas(total_sum))
+    total_tons_label = escape(format_tons(total_tons))
     return f"""<!DOCTYPE html>
 <html lang="uz">
 <head>
@@ -792,12 +813,13 @@ def build_report_html(
     <h1>Hisobot</h1>
     <div class="period">Davr: {escape(period_label)}</div>
     <div class="toolbar">
-      <input id="searchInput" class="search-input" type="text" placeholder="Qidirish: mijoz, soni yoki summa" />
-      <div class="hint">Sarlavhalarni bosib saralang (Mijoz, Buyurtmalar soni, Jami summa)</div>
+      <input id="searchInput" class="search-input" type="text" placeholder="Qidirish: mijoz, mahsulot, tonna yoki summa" />
+      <div class="hint">Sarlavhalarni bosib saralang (Mijoz, Mahsulot, Tonna, Jami summa)</div>
     </div>
     <div class="sort-buttons" aria-label="Saralash tugmalari">
       <button type="button" class="sort-button" data-sort="name">Mijoz</button>
-      <button type="button" class="sort-button" data-sort="count">Buyurtmalar soni</button>
+      <button type="button" class="sort-button" data-sort="product">Mahsulot</button>
+      <button type="button" class="sort-button" data-sort="tons">Tonna</button>
       <button type="button" class="sort-button" data-sort="amount">Jami summa</button>
     </div>
     <table>
@@ -805,7 +827,8 @@ def build_report_html(
         <tr>
           <th>#</th>
           <th class="sortable" data-sort="name">Mijoz</th>
-          <th class="sortable" data-sort="count" style="text-align:center;">Buyurtmalar soni</th>
+          <th class="sortable" data-sort="product">Mahsulot</th>
+          <th class="sortable" data-sort="tons" style="text-align:right;">Tonna (t)</th>
           <th class="sortable" data-sort="amount" style="text-align:right;">Jami summa (so'm)</th>
         </tr>
       </thead>
@@ -813,17 +836,17 @@ def build_report_html(
         {''.join(rows_html)}
       </tbody>
     </table>
-    <div class="total">Umumiy summa: {total_label} so'm</div>
+    <div class="total">Umumiy summa: {total_sum_label} so'm · Jami tonna: {total_tons_label} t</div>
   </div>
   <script>
     const tbody = document.querySelector("tbody");
     const rows = Array.from(tbody.querySelectorAll("tr"));
-    const sortState = {{ name: "desc", count: "asc", amount: "asc" }};
+    const sortState = {{ name: "desc", product: "asc", tons: "asc", amount: "asc" }};
 
     const getCellValue = (row, key) => {{
       const cell = row.querySelector(`[data-key="${{key}}"]`);
       if (!cell) return "";
-      if (key === "name") {{
+      if (key === "name" || key === "product") {{
         return (cell.dataset.value || cell.textContent).trim().toLowerCase();
       }}
       const num = parseFloat(cell.dataset.value || "0");
@@ -836,7 +859,7 @@ def build_report_html(
       rows.sort((a, b) => {{
         const av = getCellValue(a, key);
         const bv = getCellValue(b, key);
-        if (key === "name") {{
+        if (key === "name" || key === "product") {{
           if (av < bv) return direction === "asc" ? -1 : 1;
           if (av > bv) return direction === "asc" ? 1 : -1;
           return 0;

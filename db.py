@@ -548,6 +548,7 @@ def list_orders_for_report(
             users.first_name,
             users.last_name,
             users.phone,
+            products.name AS product_name,
             products.price_per_kg AS product_price_per_kg
         FROM orders
         JOIN users ON orders.user_id = users.id
