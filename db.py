@@ -1,10 +1,19 @@
 import sqlite3
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Iterable, Optional
 
 DB_PATH = "bot.sqlite3"
-TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
+
+
+def get_tashkent_tz() -> timezone:
+    try:
+        return ZoneInfo("Asia/Tashkent")
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=5))
+
+
+TASHKENT_TZ = get_tashkent_tz()
 
 
 def now_tashkent() -> datetime:

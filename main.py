@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from html import escape
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass
 from typing import Optional
 
@@ -26,7 +26,16 @@ import db
 ADMIN_LIST = {960217500, 8359092913, 5950335991, 45152058, 7746040125}
 GROUP_LIST = {-1003580758940,}
 REPORT_LIST = {960217500,}
-TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
+
+
+def get_tashkent_tz() -> timezone:
+    try:
+        return ZoneInfo("Asia/Tashkent")
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=5))
+
+
+TASHKENT_TZ = get_tashkent_tz()
 
 INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
