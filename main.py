@@ -151,8 +151,18 @@ class ActivityMiddleware(BaseMiddleware):
                     and is_admin(event.from_user.id)
                 ):
                     return await handler(event, data)
+                await event.answer(
+                    "ℹ️ Botdan foydalanish uchun iltimos, shaxsiy chatga yozing."
+                )
                 return
             db.update_last_active(event.from_user.id)
+        if isinstance(event, types.CallbackQuery) and event.from_user:
+            if event.message and event.message.chat.type != "private":
+                await event.answer(
+                    "ℹ️ Botdan foydalanish uchun iltimos, shaxsiy chatga yozing.",
+                    show_alert=True,
+                )
+                return
         return await handler(event, data)
 
 
@@ -1824,6 +1834,7 @@ async def main() -> None:
     @dp.message(F.text == BTN_REPORTS)
     async def report_start(message: types.Message, state: FSMContext) -> None:
         if not can_view_reports(message.from_user.id):
+            await message.answer("⛔️ Hisobotlar faqat ruxsat berilgan foydalanuvchilar uchun.")
             return
         await state.set_state(ReportStates.start_date)
         await message.answer(
@@ -1839,7 +1850,10 @@ async def main() -> None:
     @dp.callback_query(F.data.startswith("report_period:"))
     async def report_quick_period(callback: types.CallbackQuery, state: FSMContext) -> None:
         if not can_view_reports(callback.from_user.id):
-            await callback.answer()
+            await callback.answer(
+                "⛔️ Hisobotlar faqat ruxsat berilgan foydalanuvchilar uchun.",
+                show_alert=True,
+            )
             return
         period_key = callback.data.split(":", 1)[1]
         now = datetime.now()
