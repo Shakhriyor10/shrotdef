@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -1054,20 +1055,48 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
         f"🗒 Tavsif: {product['description'] or 'Kiritilmagan'}"
     )
     if photos:
-        await bot.send_photo(
-            chat_id=chat_id,
-            photo=photos[0],
-            caption=caption,
-            reply_markup=product_inline_keyboard(product["id"], admin),
-        )
+        try:
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=photos[0],
+                caption=caption,
+                reply_markup=product_inline_keyboard(product["id"], admin),
+            )
+        except TelegramBadRequest as exc:
+            logging.warning(
+                "Failed to send product photo for product %s: %s",
+                product["id"],
+                exc,
+            )
+            db.set_product_photos(product["id"], [])
+            await bot.send_message(
+                chat_id=chat_id,
+                text=caption,
+                reply_markup=product_inline_keyboard(product["id"], admin),
+            )
+            return
         remaining_photos = photos[1:3]
         if len(remaining_photos) == 1:
-            await bot.send_photo(chat_id=chat_id, photo=remaining_photos[0])
+            try:
+                await bot.send_photo(chat_id=chat_id, photo=remaining_photos[0])
+            except TelegramBadRequest as exc:
+                logging.warning(
+                    "Failed to send additional product photo for product %s: %s",
+                    product["id"],
+                    exc,
+                )
         elif len(remaining_photos) > 1:
             builder = MediaGroupBuilder()
             for file_id in remaining_photos:
                 builder.add_photo(media=file_id)
-            await bot.send_media_group(chat_id=chat_id, media=builder.build())
+            try:
+                await bot.send_media_group(chat_id=chat_id, media=builder.build())
+            except TelegramBadRequest as exc:
+                logging.warning(
+                    "Failed to send product media group for product %s: %s",
+                    product["id"],
+                    exc,
+                )
     else:
         await bot.send_message(
             chat_id=chat_id,
