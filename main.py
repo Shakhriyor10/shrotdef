@@ -4,10 +4,12 @@ import logging
 import os
 import re
 import sqlite3
+import tempfile
 import urllib.parse
 import urllib.request
 from html import escape
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass
 from typing import Optional
@@ -1016,20 +1018,19 @@ async def send_report_for_period(
     start_date: datetime,
     end_date: datetime,
 ) -> None:
-    rows = list(
-        db.list_orders_for_report(
-            start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d"),
+    async def prepare_report_payload() -> tuple[str, str, str]:
+        return await run_in_thread(
+            build_report_payload,
+            user_id,
+            start_date,
+            end_date,
         )
-    )
-    summary_text = build_report_summary_text(rows, start_date, end_date)
-    period_label = format_report_period(start_date, end_date)
-    timestamp = int(datetime.utcnow().timestamp())
-    file_path = f"report_{user_id}_{timestamp}.html"
-    report_html = build_report_html(rows, start_date, end_date)
-    with open(file_path, "w", encoding="utf-8") as handle:
-        handle.write(report_html)
+
+    loading_message = None
+    file_path: Optional[str] = None
     try:
+        loading_message = await bot.send_message(chat_id, "⏳ Hisobot tayyorlanmoqda...")
+        summary_text, period_label, file_path = await prepare_report_payload()
         await bot.send_message(
             chat_id,
             summary_text,
@@ -1041,9 +1042,47 @@ async def send_report_for_period(
             caption=f"📑 Hisobot tayyor.\nDavr: {period_label}",
             reply_markup=user_keyboard(user_id),
         )
+    except Exception:
+        logging.exception("Failed to generate report payload.")
+        await bot.send_message(
+            chat_id,
+            "❌ Hisobot tayyorlashda xatolik yuz berdi. Keyinroq urinib ko'ring.",
+            reply_markup=user_keyboard(user_id),
+        )
     finally:
-        if os.path.exists(file_path):
+        if loading_message:
+            try:
+                await loading_message.delete()
+            except Exception:
+                logging.exception("Failed to delete loading message.")
+        if file_path and os.path.exists(file_path):
             os.remove(file_path)
+
+
+def build_report_payload(
+    user_id: int,
+    start_date: datetime,
+    end_date: datetime,
+) -> tuple[str, str, str]:
+    rows = list(
+        db.list_orders_for_report(
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+        )
+    )
+    summary_text = build_report_summary_text(rows, start_date, end_date)
+    period_label = format_report_period(start_date, end_date)
+    report_html = build_report_html(rows, start_date, end_date)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        suffix=".html",
+        prefix=f"report_{user_id}_",
+        delete=False,
+    ) as handle:
+        handle.write(report_html)
+        file_path = handle.name
+    return summary_text, period_label, file_path
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
@@ -1164,9 +1203,14 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
         return payload.get("display_name")
 
     try:
-        return await asyncio.to_thread(_lookup)
+        return await run_in_thread(_lookup)
     except Exception:
         return None
+
+
+async def run_in_thread(func, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
 async def main() -> None:
