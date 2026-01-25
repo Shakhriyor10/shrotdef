@@ -512,6 +512,7 @@ def list_orders_with_details(
             orders.created_at,
             orders.status,
             orders.order_price_per_kg,
+            orders.closed_at,
             orders.canceled_by_role,
             users.first_name,
             users.last_name,

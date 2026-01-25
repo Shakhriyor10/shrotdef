@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -1016,12 +1017,7 @@ async def send_report_for_period(
     start_date: datetime,
     end_date: datetime,
 ) -> None:
-    rows = list(
-        db.list_orders_for_report(
-            start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d"),
-        )
-    )
+    rows = list_orders_for_report(start_date, end_date)
     summary_text = build_report_summary_text(rows, start_date, end_date)
     period_label = format_report_period(start_date, end_date)
     timestamp = int(datetime.utcnow().timestamp())
@@ -1047,33 +1043,111 @@ async def send_report_for_period(
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
-    photos = db.get_product_photos(product["id"])
+    photos = [photo for photo in db.get_product_photos(product["id"]) if str(photo).strip()]
     caption = (
         f"📦 Mahsulot: {product['name']}\n"
         f"💰 Narxi (1 kg): {product['price_per_kg']} сум\n"
         f"🗒 Tavsif: {product['description'] or 'Kiritilmagan'}"
     )
     if photos:
-        await bot.send_photo(
+        sent = await safe_send_photo(
+            bot=bot,
             chat_id=chat_id,
             photo=photos[0],
             caption=caption,
             reply_markup=product_inline_keyboard(product["id"], admin),
         )
+        if not sent:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=caption,
+                reply_markup=product_inline_keyboard(product["id"], admin),
+            )
+            return
         remaining_photos = photos[1:3]
-        if len(remaining_photos) == 1:
-            await bot.send_photo(chat_id=chat_id, photo=remaining_photos[0])
-        elif len(remaining_photos) > 1:
-            builder = MediaGroupBuilder()
-            for file_id in remaining_photos:
-                builder.add_photo(media=file_id)
-            await bot.send_media_group(chat_id=chat_id, media=builder.build())
+        await send_remaining_photos(bot, chat_id, remaining_photos)
     else:
         await bot.send_message(
             chat_id=chat_id,
             text=caption,
             reply_markup=product_inline_keyboard(product["id"], admin),
         )
+
+
+def list_orders_for_report(start_date: datetime, end_date: datetime) -> list[sqlite3.Row]:
+    if hasattr(db, "list_orders_for_report"):
+        return list(
+            db.list_orders_for_report(
+                start_date.strftime("%Y-%m-%d"),
+                end_date.strftime("%Y-%m-%d"),
+            )
+        )
+    orders = list(db.list_orders_with_details(status="closed"))
+    return [
+        order
+        for order in orders
+        if is_order_in_period(order, start_date, end_date)
+    ]
+
+
+def is_order_in_period(
+    order: sqlite3.Row, start_date: datetime, end_date: datetime
+) -> bool:
+    date_value = order["closed_at"] or order["created_at"]
+    parsed = parse_order_datetime(date_value)
+    if parsed is None:
+        return False
+    return start_date.date() <= parsed.date() <= end_date.date()
+
+
+def parse_order_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+async def safe_send_photo(
+    bot: Bot,
+    chat_id: int,
+    photo: str,
+    caption: Optional[str] = None,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+) -> bool:
+    try:
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=photo,
+            caption=caption,
+            reply_markup=reply_markup,
+        )
+        return True
+    except TelegramBadRequest as exc:
+        logging.warning("Failed to send product photo %s: %s", photo, exc)
+        return False
+
+
+async def send_remaining_photos(bot: Bot, chat_id: int, photos: list[str]) -> None:
+    if len(photos) == 1:
+        await safe_send_photo(bot=bot, chat_id=chat_id, photo=photos[0])
+        return
+    if not photos:
+        return
+    builder = MediaGroupBuilder()
+    for file_id in photos:
+        builder.add_photo(media=file_id)
+    try:
+        await bot.send_media_group(chat_id=chat_id, media=builder.build())
+    except TelegramBadRequest as exc:
+        logging.warning("Failed to send product media group: %s", exc)
 
 
 async def ensure_user_registered(message: types.Message) -> bool:
