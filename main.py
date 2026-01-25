@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 from html import escape
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass
 from typing import Optional
@@ -1018,25 +1019,18 @@ async def send_report_for_period(
     end_date: datetime,
 ) -> None:
     async def prepare_report_payload() -> tuple[str, str, str]:
-        return await asyncio.to_thread(
+        return await run_in_thread(
             build_report_payload,
             user_id,
             start_date,
             end_date,
         )
 
-    loading_message = await bot.send_message(chat_id, "⏳ Hisobot tayyorlanmoqda...")
+    loading_message = None
+    file_path: Optional[str] = None
     try:
+        loading_message = await bot.send_message(chat_id, "⏳ Hisobot tayyorlanmoqda...")
         summary_text, period_label, file_path = await prepare_report_payload()
-    except Exception:
-        logging.exception("Failed to generate report payload.")
-        await bot.send_message(
-            chat_id,
-            "❌ Hisobot tayyorlashda xatolik yuz berdi. Keyinroq urinib ko'ring.",
-            reply_markup=user_keyboard(user_id),
-        )
-        return
-    try:
         await bot.send_message(
             chat_id,
             summary_text,
@@ -1048,13 +1042,20 @@ async def send_report_for_period(
             caption=f"📑 Hisobot tayyor.\nDavr: {period_label}",
             reply_markup=user_keyboard(user_id),
         )
+    except Exception:
+        logging.exception("Failed to generate report payload.")
+        await bot.send_message(
+            chat_id,
+            "❌ Hisobot tayyorlashda xatolik yuz berdi. Keyinroq urinib ko'ring.",
+            reply_markup=user_keyboard(user_id),
+        )
     finally:
         if loading_message:
             try:
                 await loading_message.delete()
             except Exception:
                 logging.exception("Failed to delete loading message.")
-        if os.path.exists(file_path):
+        if file_path and os.path.exists(file_path):
             os.remove(file_path)
 
 
@@ -1202,9 +1203,14 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
         return payload.get("display_name")
 
     try:
-        return await asyncio.to_thread(_lookup)
+        return await run_in_thread(_lookup)
     except Exception:
         return None
+
+
+async def run_in_thread(func, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
 async def main() -> None:
