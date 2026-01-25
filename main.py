@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sqlite3
+import tempfile
 import urllib.parse
 import urllib.request
 from html import escape
@@ -1016,19 +1017,25 @@ async def send_report_for_period(
     start_date: datetime,
     end_date: datetime,
 ) -> None:
-    rows = list(
-        db.list_orders_for_report(
-            start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d"),
+    async def prepare_report_payload() -> tuple[str, str, str]:
+        return await asyncio.to_thread(
+            build_report_payload,
+            user_id,
+            start_date,
+            end_date,
         )
-    )
-    summary_text = build_report_summary_text(rows, start_date, end_date)
-    period_label = format_report_period(start_date, end_date)
-    timestamp = int(datetime.utcnow().timestamp())
-    file_path = f"report_{user_id}_{timestamp}.html"
-    report_html = build_report_html(rows, start_date, end_date)
-    with open(file_path, "w", encoding="utf-8") as handle:
-        handle.write(report_html)
+
+    loading_message = await bot.send_message(chat_id, "⏳ Hisobot tayyorlanmoqda...")
+    try:
+        summary_text, period_label, file_path = await prepare_report_payload()
+    except Exception:
+        logging.exception("Failed to generate report payload.")
+        await bot.send_message(
+            chat_id,
+            "❌ Hisobot tayyorlashda xatolik yuz berdi. Keyinroq urinib ko'ring.",
+            reply_markup=user_keyboard(user_id),
+        )
+        return
     try:
         await bot.send_message(
             chat_id,
@@ -1042,8 +1049,39 @@ async def send_report_for_period(
             reply_markup=user_keyboard(user_id),
         )
     finally:
+        if loading_message:
+            try:
+                await loading_message.delete()
+            except Exception:
+                logging.exception("Failed to delete loading message.")
         if os.path.exists(file_path):
             os.remove(file_path)
+
+
+def build_report_payload(
+    user_id: int,
+    start_date: datetime,
+    end_date: datetime,
+) -> tuple[str, str, str]:
+    rows = list(
+        db.list_orders_for_report(
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+        )
+    )
+    summary_text = build_report_summary_text(rows, start_date, end_date)
+    period_label = format_report_period(start_date, end_date)
+    report_html = build_report_html(rows, start_date, end_date)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        suffix=".html",
+        prefix=f"report_{user_id}_",
+        delete=False,
+    ) as handle:
+        handle.write(report_html)
+        file_path = handle.name
+    return summary_text, period_label, file_path
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
