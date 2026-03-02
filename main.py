@@ -38,6 +38,16 @@ def get_tashkent_tz() -> timezone:
 
 TASHKENT_TZ = get_tashkent_tz()
 
+
+def get_tashkent_tz() -> timezone:
+    try:
+        return ZoneInfo("Asia/Tashkent")
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=5))
+
+
+TASHKENT_TZ = get_tashkent_tz()
+
 INFO_TEXT = """ℹ️ Bizning botda mahsulotlar haqida ma'lumot olishingiz mumkin.
 ⚖️ Mahsulotlar narxi kilogramm bo'yicha ko'rsatiladi.
 """
