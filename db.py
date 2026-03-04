@@ -27,6 +27,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    now = now_tashkent().isoformat()
     with get_connection() as conn:
         conn.execute(
             """
@@ -116,6 +117,18 @@ def init_db() -> None:
             pass
         try:
             conn.execute(
+                "ALTER TABLE users ADD COLUMN created_at TEXT NOT NULL DEFAULT ''"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN last_active TEXT NOT NULL DEFAULT ''"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
                 "ALTER TABLE users ADD COLUMN activity_count INTEGER NOT NULL DEFAULT 0"
             )
         except sqlite3.OperationalError:
@@ -151,6 +164,14 @@ def init_db() -> None:
             END
             WHERE status = 'canceled' AND canceled_by_role IS NULL
             """
+        )
+        conn.execute(
+            "UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE users SET last_active = COALESCE(NULLIF(last_active, ''), created_at, ?)",
+            (now,),
         )
 
 
