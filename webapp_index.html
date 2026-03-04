@@ -104,6 +104,23 @@
       box-sizing: border-box;
     }
     .hidden { display: none; }
+    .summary {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      line-height: 1.5;
+    }
+    .secondary-btn {
+      background: transparent;
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      margin-top: 8px;
+      width: 100%;
+      padding: 12px;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -188,29 +205,82 @@ async function loadProducts() {
         <div><b>${p.name}</b></div>
         <div class="muted">${p.description || 'Tavsif yoʻq'}</div>
         <div><b>${p.price_per_kg} soʻm / kg</b></div>
-        <button class="buy-btn" onclick="openOrderForm(${p.id}, '${(p.name||'').replace(/'/g,'')}')">Sotib olish</button>
+        <button class="buy-btn" onclick="openOrderForm(${p.id}, '${(p.name||'').replace(/'/g,'')}', ${p.price_per_kg})">Sotib olish</button>
       </div>
     </div>
   `).join(''));
 }
 
-function openOrderForm(productId, productName) {
+function formatMoney(value) {
+  return Number(value || 0).toLocaleString('ru-RU');
+}
+
+function calculateTotal(pricePerKg, qtyTons) {
+  const tons = Number(String(qtyTons).replace(',', '.'));
+  if (!Number.isFinite(tons) || tons <= 0) return null;
+  return tons * 1000 * Number(pricePerKg || 0);
+}
+
+function updateOrderTotal(productPricePerKg) {
+  const qtyValue = document.getElementById('qty')?.value || '';
+  const totalNode = document.getElementById('totalAmount');
+  const total = calculateTotal(productPricePerKg, qtyValue);
+  if (!totalNode) return;
+  totalNode.textContent = total === null
+    ? 'Jami summa: —'
+    : `Jami summa: ${formatMoney(total)} soʻm`;
+}
+
+function openOrderForm(productId, productName, productPricePerKg) {
   showSection(`
     <div class="panel">
       <h3>Buyurtma: ${productName}</h3>
-      <input id="qty" placeholder="Miqdor (masalan: 2.5)" />
+      <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="updateOrderTotal(${productPricePerKg})" />
       <textarea id="addr" placeholder="Manzil"></textarea>
-      <button class="buy-btn" onclick="submitOrder(${productId})">Yuborish</button>
+      <div id="totalAmount" class="summary">Jami summa: —</div>
+      <button class="buy-btn" onclick="previewOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Yuborish</button>
+      <div id="confirmBlock" class="hidden"></div>
     </div>
   `);
 }
 
-async function submitOrder(productId) {
-  const quantity = document.getElementById('qty').value;
-  const address = document.getElementById('addr').value;
+function previewOrder(productId, productName, productPricePerKg) {
+  const quantity = (document.getElementById('qty')?.value || '').trim();
+  const address = (document.getElementById('addr')?.value || '').trim();
+  const total = calculateTotal(productPricePerKg, quantity);
+  if (!quantity) return tg.showAlert('Iltimos, tonna miqdorini kiriting.');
+  if (!address) return tg.showAlert('Iltimos, manzilni kiriting.');
+  if (total === null) return tg.showAlert('Miqdor notoʻgʻri kiritildi.');
+
+  const confirmBlock = document.getElementById('confirmBlock');
+  confirmBlock.classList.remove('hidden');
+  confirmBlock.innerHTML = `
+    <div class="summary">
+      <b>Tasdiqlashdan oldin tekshiring:</b><br>
+      Mahsulot: <b>${productName}</b><br>
+      Miqdor: <b>${quantity} tonna</b><br>
+      Manzil: <b>${address}</b><br>
+      Umumiy summa: <b>${formatMoney(total)} soʻm</b>
+    </div>
+    <button class="buy-btn" onclick="submitOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Tasdiqlash va buyurtma yaratish</button>
+    <button class="secondary-btn" onclick="hidePreview()">Tahrirlash</button>
+  `;
+}
+
+function hidePreview() {
+  const confirmBlock = document.getElementById('confirmBlock');
+  confirmBlock.classList.add('hidden');
+  confirmBlock.innerHTML = '';
+}
+
+async function submitOrder(productId, productName, productPricePerKg) {
+  const quantity = (document.getElementById('qty')?.value || '').trim();
+  const address = (document.getElementById('addr')?.value || '').trim();
   try {
     const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({tg_id:userId, product_id:productId, quantity, address})});
-    tg.showAlert(`Buyurtma qabul qilindi. ID: ${data.order_id}`);
+    const total = calculateTotal(productPricePerKg, quantity);
+    tg.showAlert(`Buyurtma qabul qilindi.\nMahsulot: ${productName}\nMiqdor: ${quantity} tonna\nManzil: ${address}\nUmumiy summa: ${formatMoney(total)} soʻm\nID: ${data.order_id}`);
+    openOrderForm(productId, productName, productPricePerKg);
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);
   }
