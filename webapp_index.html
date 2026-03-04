@@ -235,10 +235,12 @@ function openOrderForm(productId, productName, productPricePerKg) {
   showSection(`
     <div class="panel">
       <h3>Buyurtma: ${productName}</h3>
-      <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="updateOrderTotal(${productPricePerKg})" />
-      <textarea id="addr" placeholder="Manzil"></textarea>
-      <div id="totalAmount" class="summary">Jami summa: —</div>
-      <button class="buy-btn" onclick="previewOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Yuborish</button>
+      <div id="formFields">
+        <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="updateOrderTotal(${productPricePerKg})" />
+        <textarea id="addr" placeholder="Manzil"></textarea>
+        <div id="totalAmount" class="summary">Jami summa: —</div>
+      </div>
+      <button id="previewBtn" class="buy-btn" onclick="previewOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Yuborish</button>
       <div id="confirmBlock" class="hidden"></div>
     </div>
   `);
@@ -252,7 +254,11 @@ function previewOrder(productId, productName, productPricePerKg) {
   if (!address) return tg.showAlert('Iltimos, manzilni kiriting.');
   if (total === null) return tg.showAlert('Miqdor notoʻgʻri kiritildi.');
 
+  const formFields = document.getElementById('formFields');
+  const previewBtn = document.getElementById('previewBtn');
   const confirmBlock = document.getElementById('confirmBlock');
+  if (formFields) formFields.classList.add('hidden');
+  if (previewBtn) previewBtn.classList.add('hidden');
   confirmBlock.classList.remove('hidden');
   confirmBlock.innerHTML = `
     <div class="summary">
@@ -268,7 +274,11 @@ function previewOrder(productId, productName, productPricePerKg) {
 }
 
 function hidePreview() {
+  const formFields = document.getElementById('formFields');
+  const previewBtn = document.getElementById('previewBtn');
   const confirmBlock = document.getElementById('confirmBlock');
+  if (formFields) formFields.classList.remove('hidden');
+  if (previewBtn) previewBtn.classList.remove('hidden');
   confirmBlock.classList.add('hidden');
   confirmBlock.innerHTML = '';
 }
