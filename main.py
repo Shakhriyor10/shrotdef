@@ -185,8 +185,9 @@ def can_view_reports(user_id: int) -> bool:
 
 def user_keyboard(user_id: int, is_admin_override: Optional[bool] = None) -> ReplyKeyboardMarkup:
     is_admin_user = is_admin_override if is_admin_override is not None else is_admin(user_id)
+    web_app_url = f"{WEB_APP_URL}?tg_id={user_id}"
     rows = [
-        [KeyboardButton(text=BTN_OPEN_APP, web_app=types.WebAppInfo(url=WEB_APP_URL))],
+        [KeyboardButton(text=BTN_OPEN_APP, web_app=types.WebAppInfo(url=web_app_url))],
         [KeyboardButton(text=BTN_PRODUCTS)],
         [KeyboardButton(text=BTN_CONTACT), KeyboardButton(text=BTN_NEWS)],
     ]
@@ -212,13 +213,14 @@ def contact_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def webapp_inline_keyboard() -> InlineKeyboardMarkup:
+def webapp_inline_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    web_app_url = f"{WEB_APP_URL}?tg_id={user_id}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="📱 Ilovani ochish",
-                    web_app=types.WebAppInfo(url=WEB_APP_URL),
+                    web_app=types.WebAppInfo(url=web_app_url),
                 )
             ]
         ]
@@ -1516,7 +1518,7 @@ async def main() -> None:
             )
             await message.answer(
                 "Web ilovani ochish uchun tugmani bosing 👇",
-                reply_markup=webapp_inline_keyboard(),
+                reply_markup=webapp_inline_keyboard(message.from_user.id),
             )
         else:
             await message.answer(
@@ -1536,7 +1538,7 @@ async def main() -> None:
         )
         await message.answer(
             "Web ilovani ochish uchun tugmani bosing 👇",
-            reply_markup=webapp_inline_keyboard(),
+            reply_markup=webapp_inline_keyboard(message.from_user.id),
         )
 
     @dp.message(F.text == BTN_PRODUCTS)
