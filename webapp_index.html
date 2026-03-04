@@ -104,6 +104,35 @@
       box-sizing: border-box;
     }
     .hidden { display: none; }
+    .summary {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      line-height: 1.5;
+    }
+    .secondary-btn {
+      background: transparent;
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      margin-top: 8px;
+      width: 100%;
+      padding: 12px;
+      font-weight: 700;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .filter-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -188,29 +217,203 @@ async function loadProducts() {
         <div><b>${p.name}</b></div>
         <div class="muted">${p.description || 'Tavsif yoʻq'}</div>
         <div><b>${p.price_per_kg} soʻm / kg</b></div>
-        <button class="buy-btn" onclick="openOrderForm(${p.id}, '${(p.name||'').replace(/'/g,'')}')">Sotib olish</button>
+        <button class="buy-btn" onclick="openOrderForm(${p.id}, '${(p.name||'').replace(/'/g,'')}', ${p.price_per_kg})">Sotib olish</button>
       </div>
     </div>
   `).join(''));
 }
 
-function openOrderForm(productId, productName) {
+function formatMoney(value) {
+  return Number(value || 0).toLocaleString('ru-RU');
+}
+
+function calculateTotal(pricePerKg, qtyTons) {
+  const tons = Number(String(qtyTons).replace(',', '.'));
+  if (!Number.isFinite(tons) || tons <= 0) return null;
+  return tons * 1000 * Number(pricePerKg || 0);
+}
+
+function updateOrderTotal(productPricePerKg) {
+  const qtyValue = document.getElementById('qty')?.value || '';
+  const totalNode = document.getElementById('totalAmount');
+  const total = calculateTotal(productPricePerKg, qtyValue);
+  if (!totalNode) return;
+  totalNode.textContent = total === null
+    ? 'Jami summa: —'
+    : `Jami summa: ${formatMoney(total)} soʻm`;
+}
+
+function statusMeta(status) {
+  if (status === 'open') return {label: '🟠 Kutilmoqda', color: '#f59e0b'};
+  if (status === 'closed') return {label: '🟢 Qabul qilingan', color: '#16a34a'};
+  if (status === 'canceled') return {label: '🔴 Bekor qilingan', color: '#dc2626'};
+  return {label: status || 'Nomaʼlum', color: 'var(--hint-color)'};
+}
+
+function openOrderForm(productId, productName, productPricePerKg) {
   showSection(`
     <div class="panel">
       <h3>Buyurtma: ${productName}</h3>
-      <input id="qty" placeholder="Miqdor (masalan: 2.5)" />
-      <textarea id="addr" placeholder="Manzil"></textarea>
-      <button class="buy-btn" onclick="submitOrder(${productId})">Yuborish</button>
+      <div id="formFields">
+        <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="updateOrderTotal(${productPricePerKg})" />
+        <textarea id="addr" placeholder="Manzil"></textarea>
+        <div id="totalAmount" class="summary">Jami summa: —</div>
+      </div>
+      <button id="previewBtn" class="buy-btn" onclick="previewOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Yuborish</button>
+      <div id="confirmBlock" class="hidden"></div>
     </div>
   `);
 }
 
-async function submitOrder(productId) {
-  const quantity = document.getElementById('qty').value;
-  const address = document.getElementById('addr').value;
+function previewOrder(productId, productName, productPricePerKg) {
+  const quantity = (document.getElementById('qty')?.value || '').trim();
+  const address = (document.getElementById('addr')?.value || '').trim();
+  const total = calculateTotal(productPricePerKg, quantity);
+  if (!quantity) return tg.showAlert('Iltimos, tonna miqdorini kiriting.');
+  if (!address) return tg.showAlert('Iltimos, manzilni kiriting.');
+  if (total === null) return tg.showAlert('Miqdor notoʻgʻri kiritildi.');
+
+  const formFields = document.getElementById('formFields');
+  const previewBtn = document.getElementById('previewBtn');
+  const confirmBlock = document.getElementById('confirmBlock');
+  if (formFields) formFields.classList.add('hidden');
+  if (previewBtn) previewBtn.classList.add('hidden');
+  confirmBlock.classList.remove('hidden');
+  confirmBlock.innerHTML = `
+    <div class="summary">
+      <b>Tasdiqlashdan oldin tekshiring:</b><br>
+      Mahsulot: <b>${productName}</b><br>
+      Miqdor: <b>${quantity} tonna</b><br>
+      Manzil: <b>${address}</b><br>
+      Umumiy summa: <b>${formatMoney(total)} soʻm</b>
+    </div>
+    <button class="buy-btn" onclick="submitOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Tasdiqlash va buyurtma yaratish</button>
+    <button class="secondary-btn" onclick="hidePreview()">Tahrirlash</button>
+  `;
+}
+
+function hidePreview() {
+  const formFields = document.getElementById('formFields');
+  const previewBtn = document.getElementById('previewBtn');
+  const confirmBlock = document.getElementById('confirmBlock');
+  if (formFields) formFields.classList.remove('hidden');
+  if (previewBtn) previewBtn.classList.remove('hidden');
+  confirmBlock.classList.add('hidden');
+  confirmBlock.innerHTML = '';
+}
+
+async function submitOrder(productId, productName, productPricePerKg) {
+  const quantity = (document.getElementById('qty')?.value || '').trim();
+  const address = (document.getElementById('addr')?.value || '').trim();
   try {
     const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({tg_id:userId, product_id:productId, quantity, address})});
-    tg.showAlert(`Buyurtma qabul qilindi. ID: ${data.order_id}`);
+    const total = calculateTotal(productPricePerKg, quantity);
+    tg.showAlert(`Buyurtma qabul qilindi.\nMahsulot: ${productName}\nMiqdor: ${quantity} tonna\nManzil: ${address}\nUmumiy summa: ${formatMoney(total)} soʻm\nID: ${data.order_id}`);
+    openOrderForm(productId, productName, productPricePerKg);
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function cancelOrder(orderId) {
+  const confirmed = await new Promise((resolve) => {
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm('Siz rostdan ham buyurtmani bekor qilmoqchimisiz?', resolve);
+      return;
+    }
+    resolve(window.confirm('Siz rostdan ham buyurtmani bekor qilmoqchimisiz?'));
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(`/webapp/api/orders/${orderId}/cancel`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert('Buyurtma bekor qilindi.');
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+let ordersCache = [];
+let ordersSearchQuery = '';
+let ordersStatusFilter = 'all';
+
+function renderOrdersList() {
+  const filtered = ordersCache.filter((order) => {
+    const statusOk = ordersStatusFilter === 'all' || order.status === ordersStatusFilter;
+    if (!statusOk) return false;
+    if (!ordersSearchQuery) return true;
+    const query = ordersSearchQuery.toLowerCase();
+    const haystack = [
+      order.product_name,
+      order.quantity,
+      order.address,
+      order.client_name || '',
+      order.client_phone || ''
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
+  const cards = filtered.map(o => {
+    const meta = statusMeta(o.status);
+    const statusLabel = o.status_label || meta.label;
+    return `
+      <div class="panel">
+        <div><b>Buyurtma #${o.id}</b></div>
+        ${o.client_name ? `<div>👤 Mijoz: <b>${o.client_name}</b></div>` : ''}
+        ${o.client_phone ? `<div>📞 Telefon: <b>${o.client_phone}</b></div>` : ''}
+        <div>📦 Mahsulot: <b>${o.product_name}</b></div>
+        <div>⚖️ Miqdor: <b>${o.quantity}</b></div>
+        <div>📍 Manzil: <b>${o.address}</b></div>
+        <div>💵 Jami summa: <b>${o.total_amount}</b></div>
+        <div style="margin-top:6px;color:${meta.color};font-weight:700;">Holat: ${statusLabel}</div>
+        ${o.can_admin_manage ? `
+          <button class="buy-btn" onclick="adminUpdateOrderStatus(${o.id}, 'close')">Qabul qilish</button>
+          <button class="secondary-btn" onclick="adminUpdateOrderStatus(${o.id}, 'cancel')">Bekor qilish</button>
+        ` : ''}
+        ${o.can_cancel ? `<button class="secondary-btn" onclick="cancelOrder(${o.id})">Buyurtmani bekor qilish</button>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  const listNode = document.getElementById('ordersList');
+  if (listNode) {
+    listNode.innerHTML = cards || '<div class="panel">Buyurtmalar yoʻq.</div>';
+  }
+}
+
+function onOrdersStatusChange(value) {
+  ordersStatusFilter = value || 'all';
+  renderOrdersList();
+}
+
+function onOrdersSearchInput(value) {
+  ordersSearchQuery = String(value || '').trim();
+  renderOrdersList();
+}
+
+async function adminUpdateOrderStatus(orderId, action) {
+  const title = action === 'close' ? 'qabul qilishni' : 'bekor qilishni';
+  const confirmed = await new Promise((resolve) => {
+    const text = `Siz rostdan ham buyurtmani ${title} tasdiqlaysizmi?`;
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm(text, resolve);
+      return;
+    }
+    resolve(window.confirm(text));
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(`/webapp/api/orders/${orderId}/admin-status`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId, action})
+    });
+    tg.showAlert(action === 'close' ? 'Buyurtma qabul qilindi.' : 'Buyurtma bekor qilindi.');
+    await loadOrders();
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);
   }
@@ -218,7 +421,30 @@ async function submitOrder(productId) {
 
 async function loadOrders() {
   const data = await api(`/webapp/api/orders?tg_id=${userId}`);
-  showSection(`<div class="panel">${data.orders.map(o => `<div>#${o.id} ${o.product_name} - ${o.quantity} (${o.status})</div>`).join('') || 'Buyurtmalar yoʻq.'}</div>`);
+  ordersCache = data.orders || [];
+  ordersSearchQuery = '';
+  ordersStatusFilter = 'all';
+
+  const searchPlaceholder = role === 'admin'
+    ? 'Qidirish: mijoz ismi yoki telefon...'
+    : 'Qidirish: mahsulot, manzil...';
+
+  showSection(`
+    <div class="filters panel">
+      <input id="ordersSearch" placeholder="${searchPlaceholder}" oninput="onOrdersSearchInput(this.value)" />
+      <div class="filter-row">
+        <select id="statusFilter" onchange="onOrdersStatusChange(this.value)">
+          <option value="all">Barchasi</option>
+          <option value="open">🟠 Ochiq</option>
+          <option value="closed">🟢 Qabul qilingan</option>
+          <option value="canceled">🔴 Bekor qilingan</option>
+        </select>
+      </div>
+    </div>
+    <div id="ordersList"></div>
+  `);
+
+  renderOrdersList();
 }
 
 async function loadStats() {
