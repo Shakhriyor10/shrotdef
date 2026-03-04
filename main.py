@@ -1452,6 +1452,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         )
 
     app.router.add_get("/webapp", serve_index)
+    app.router.add_static("/img", path="img", name="img")
     app.router.add_get("/webapp/api/bootstrap", bootstrap)
     app.router.add_get("/webapp/api/products", products_api)
     app.router.add_get("/webapp/api/clients/search", clients_search)
