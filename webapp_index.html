@@ -28,10 +28,32 @@
     header {
       background: var(--header-bg);
       color: var(--text-color);
-      padding: 14px;
-      font-weight: 700;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border-color);
-      text-align: center;
+      display: flex;
+      justify-content: center;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-logo {
+      height: 44px;
+      width: auto;
+      max-width: 100%;
+      display: inline-block;
+      object-fit: contain;
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-color);
+      line-height: 1;
+      white-space: nowrap;
     }
 
     .container { padding: 12px; }
@@ -178,7 +200,7 @@
   </style>
 </head>
 <body>
-  <header>Shrot Savdo</header>
+  <header><div class="brand"><img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span></div></header>
   <div class="container">
     <div id="menu" class="grid"></div>
     <div id="content"></div>
