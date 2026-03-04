@@ -11,7 +11,9 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass
 from typing import Optional
+from pathlib import Path
 
+from aiohttp import web
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
@@ -27,6 +29,9 @@ import db
 ADMIN_LIST = {8598163827, 8359092913, 5950335991, 45152058, 7746040125, 8328616747}
 GROUP_LIST = {-1003580758940,}
 REPORT_LIST = {8598163827, 8359092913, 5950335991, 45152058, 7746040125, 8328616747}
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://example.com/webapp")
+WEB_APP_BIND_HOST = os.getenv("WEB_APP_BIND_HOST", "0.0.0.0")
+WEB_APP_BIND_PORT = int(os.getenv("WEB_APP_BIND_PORT", "8080"))
 
 
 def get_tashkent_tz() -> timezone:
@@ -202,6 +207,19 @@ def contact_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[[KeyboardButton(text=BTN_SEND_PHONE, request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True,
+    )
+
+
+def webapp_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📱 Ilovani ochish",
+                    web_app=types.WebAppInfo(url=WEB_APP_URL),
+                )
+            ]
+        ]
     )
 
 
@@ -1206,6 +1224,133 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
         return None
 
 
+async def resolve_photo_url(bot: Bot, file_id: Optional[str]) -> Optional[str]:
+    if not file_id:
+        return None
+    try:
+        file = await bot.get_file(file_id)
+    except Exception:
+        return None
+    return f"https://api.telegram.org/file/bot{bot.token}/{file.file_path}"
+
+
+def parse_webapp_quantity(value: str) -> Optional[str]:
+    qty_tons = parse_quantity_to_tons(value)
+    if qty_tons is None or qty_tons < 2:
+        return None
+    return f"{qty_tons:g} tonna"
+
+
+async def start_web_app_server(bot: Bot) -> web.AppRunner:
+    app = web.Application()
+
+    async def serve_index(_: web.Request) -> web.Response:
+        html = Path("webapp_index.html").read_text(encoding="utf-8")
+        return web.Response(text=html, content_type="text/html")
+
+    async def bootstrap(request: web.Request) -> web.Response:
+        tg_id = int(request.query.get("tg_id", "0") or 0)
+        role = "admin" if is_admin(tg_id) else "user"
+        return web.json_response({"role": role})
+
+    async def products_api(request: web.Request) -> web.Response:
+        products = []
+        for product in db.list_products():
+            photos = db.get_product_photos(product["id"])
+            products.append(
+                {
+                    "id": product["id"],
+                    "name": product["name"],
+                    "description": product["description"],
+                    "price_per_kg": product["price_per_kg"],
+                    "photo_url": await resolve_photo_url(bot, photos[0] if photos else None),
+                }
+            )
+        return web.json_response({"products": products})
+
+    async def orders_get(request: web.Request) -> web.Response:
+        tg_id = int(request.query.get("tg_id", "0") or 0)
+        user = db.get_user_by_tg_id(tg_id)
+        if not user:
+            return web.json_response({"orders": []})
+        rows = db.list_orders_with_details(limit=50) if is_admin(tg_id) else db.list_orders_for_user(user["id"])
+        orders = [
+            {
+                "id": row["id"],
+                "product_name": row["product_name"],
+                "quantity": row["quantity"],
+                "status": row["status"],
+            }
+            for row in rows
+        ]
+        return web.json_response({"orders": orders})
+
+    async def orders_post(request: web.Request) -> web.Response:
+        payload = await request.json()
+        tg_id = int(payload.get("tg_id") or 0)
+        product_id = int(payload.get("product_id") or 0)
+        quantity = parse_webapp_quantity(str(payload.get("quantity") or ""))
+        address = (payload.get("address") or "").strip()
+        if not quantity:
+            return web.json_response({"error": "Minimal buyurtma 2 tonna."}, status=400)
+        if not address:
+            return web.json_response({"error": "Manzil majburiy."}, status=400)
+        user = db.get_user_by_tg_id(tg_id)
+        product = db.get_product(product_id)
+        if not user or not product:
+            return web.json_response({"error": "Foydalanuvchi yoki mahsulot topilmadi."}, status=404)
+        order_id = db.add_order(user["id"], product_id, quantity, address, product["price_per_kg"])
+        await notify_admins_new_order(bot, order_id)
+        return web.json_response({"ok": True, "order_id": order_id})
+
+    async def stats_api(request: web.Request) -> web.Response:
+        tg_id = int(request.query.get("tg_id", "0") or 0)
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        return web.json_response(
+            {
+                "users": db.count_users(),
+                "orders": db.count_orders(),
+                "open_orders": db.count_orders_by_status("open"),
+                "closed_orders": db.count_orders_by_status("closed"),
+            }
+        )
+
+    async def reports_api(request: web.Request) -> web.Response:
+        tg_id = int(request.query.get("tg_id", "0") or 0)
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        now = datetime.now(TASHKENT_TZ)
+        start = datetime(now.year, now.month, 1)
+        rows = list(db.list_orders_for_report(start.strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d")))
+        total_amount = 0.0
+        for row in rows:
+            qty_kg = parse_quantity_to_kg(row["quantity"] or "") or 0
+            total_amount += qty_kg * (row["order_price_per_kg"] or row["product_price_per_kg"] or 0)
+        return web.json_response(
+            {
+                "period": f"{start.strftime('%Y-%m-%d')} - {now.strftime('%Y-%m-%d')}",
+                "closed_orders": len(rows),
+                "total_amount": format_money_with_commas(total_amount),
+            }
+        )
+
+    app.router.add_get("/webapp", serve_index)
+    app.router.add_get("/webapp/api/bootstrap", bootstrap)
+    app.router.add_get("/webapp/api/products", products_api)
+    app.router.add_get("/webapp/api/orders", orders_get)
+    app.router.add_post("/webapp/api/orders", orders_post)
+    app.router.add_get("/webapp/api/stats", stats_api)
+    app.router.add_get("/webapp/api/reports", reports_api)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, WEB_APP_BIND_HOST, WEB_APP_BIND_PORT)
+    await site.start()
+    logging.info("Web app started on %s:%s", WEB_APP_BIND_HOST, WEB_APP_BIND_PORT)
+    return runner
+
+
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
@@ -1232,7 +1377,12 @@ async def main() -> None:
         user = db.get_user_by_tg_id(message.from_user.id)
         if user and user["phone"]:
             await message.answer(
-                "👋 Xush kelibsiz!", reply_markup=user_keyboard(message.from_user.id)
+                "👋 Xush kelibsiz!",
+                reply_markup=user_keyboard(message.from_user.id),
+            )
+            await message.answer(
+                "Web ilovani ochish uchun tugmani bosing 👇",
+                reply_markup=webapp_inline_keyboard(),
             )
         else:
             await message.answer(
@@ -1249,6 +1399,10 @@ async def main() -> None:
         await message.answer(
             "✅ Rahmat! Endi botdan foydalanishingiz mumkin.",
             reply_markup=user_keyboard(message.from_user.id),
+        )
+        await message.answer(
+            "Web ilovani ochish uchun tugmani bosing 👇",
+            reply_markup=webapp_inline_keyboard(),
         )
 
     @dp.message(F.text == BTN_PRODUCTS)
@@ -2722,7 +2876,11 @@ async def main() -> None:
             return
         await message.answer("👉 Iltimos, menyudan tanlang.")
 
-    await dp.start_polling(bot)
+    web_runner = await start_web_app_server(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await web_runner.cleanup()
 
 
 if __name__ == "__main__":
