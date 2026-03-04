@@ -297,6 +297,14 @@ def product_inline_keyboard(product_id: int, admin: bool) -> InlineKeyboardMarku
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def products_list_keyboard(products: list[sqlite3.Row]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=product["name"], callback_data=f"product:{product['id']}")]
+        for product in products
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def edit_inline_keyboard(product_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit:{product_id}")]]
@@ -1261,8 +1269,10 @@ async def main() -> None:
                     ),
                 )
             return
-        for product in products:
-            await send_product(message.chat.id, product, bot, admin)
+        await message.answer(
+            "📦 Mahsulotni tanlang:",
+            reply_markup=products_list_keyboard(products),
+        )
         if admin:
             await message.answer(
                 "➕ Mahsulot qo'shish uchun pastdagi tugmani bosing.",
@@ -1272,6 +1282,21 @@ async def main() -> None:
                     ]
                 ),
             )
+
+    @dp.callback_query(F.data.startswith("product:"))
+    async def show_product_details(callback: types.CallbackQuery) -> None:
+        product_id = int(callback.data.split(":", 1)[1])
+        product = db.get_product(product_id)
+        if not product:
+            await callback.answer("🔎 Mahsulot topilmadi.", show_alert=True)
+            return
+        await send_product(
+            chat_id=callback.message.chat.id,
+            product=product,
+            bot=bot,
+            admin=is_admin(callback.from_user.id),
+        )
+        await callback.answer()
 
     @dp.callback_query(F.data.startswith("order:"))
     async def order_start(callback: types.CallbackQuery, state: FSMContext) -> None:
