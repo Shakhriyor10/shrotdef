@@ -1473,7 +1473,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
-    token = "8540787216:AAEVSI1CEOJjBbzVdabUc0o5zQqYnDo60Ww"
+    token = "8795104915:AAEGZl1uDtjL8rhE2oQCKBVUm5V0zDhm50k"
     if not token:
         raise RuntimeError("BOT_TOKEN is required")
 
