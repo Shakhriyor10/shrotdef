@@ -33,47 +33,77 @@
       border-bottom: 1px solid var(--border-color);
     }
 
-    .container { padding:12px; }
+    .container { padding: 12px; }
 
     .grid {
-      display:grid;
+      display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap:10px;
+      gap: 12px;
     }
 
-    button { border:none; border-radius:10px; padding:10px; cursor:pointer; }
+    button { border: none; border-radius: 12px; cursor: pointer; }
 
     .menu-btn {
       background: var(--card-bg);
-      box-shadow:0 1px 4px rgba(0,0,0,.12);
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
       color: var(--text-color);
-      font-weight:600;
+      font-weight: 700;
       width: 100%;
       text-align: left;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      min-height: 58px;
+      font-size: 16px;
+      padding: 14px;
     }
 
-    .menu-btn .icon { font-size: 19px; }
+    .icon {
+      width: 24px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--button-bg);
+      flex-shrink: 0;
+    }
 
-    .card { background:var(--card-bg); margin-top:10px; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); overflow:hidden; }
-    .card img { width:100%; height:180px; object-fit:cover; background:#e5e7eb; }
-    .card-body { padding:10px; }
-    .muted { color:var(--hint-color); font-size:13px; }
-    .buy-btn { background:var(--button-bg); color:var(--button-text); margin-top:8px; width:100%; }
-    .panel { background:var(--card-bg); padding:10px; border-radius:12px; margin-top:10px; }
+    .icon svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .back-btn {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 10px;
+      background: var(--button-bg);
+      color: var(--button-text);
+      font-weight: 700;
+    }
+
+    .card { background: var(--card-bg); margin-top: 10px; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); overflow: hidden; }
+    .card img { width: 100%; height: 180px; object-fit: cover; background: #e5e7eb; }
+    .card-body { padding: 10px; }
+    .muted { color: var(--hint-color); font-size: 13px; }
+    .buy-btn { background: var(--button-bg); color: var(--button-text); margin-top: 8px; width: 100%; padding: 12px; font-weight: 700; }
+    .panel { background: var(--card-bg); padding: 10px; border-radius: 12px; margin-top: 10px; }
     input, textarea, select {
-      width:100%;
-      padding:8px;
-      margin-top:8px;
-      border-radius:8px;
-      border:1px solid var(--border-color);
+      width: 100%;
+      padding: 10px;
+      margin-top: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
       background: var(--bg-color);
       color: var(--text-color);
-      box-sizing:border-box;
+      box-sizing: border-box;
     }
-    .hidden { display:none; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
@@ -87,6 +117,17 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 tg.ready();
+
+const ICONS = {
+  products: '<svg viewBox="0 0 24 24"><path d="M3 7h18"></path><path d="M6 7l1 12h10l1-12"></path><path d="M9 7V5a3 3 0 0 1 6 0v2"></path></svg>',
+  contact: '<svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7l.5 3a2 2 0 0 1-.6 1.8l-1.2 1.2a16 16 0 0 0 4.4 4.4l1.2-1.2a2 2 0 0 1 1.8-.6l3 .5a2 2 0 0 1 1.7 2z"></path></svg>',
+  stats: '<svg viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M10 19V9"></path><path d="M16 19V12"></path><path d="M22 19V3"></path></svg>',
+  orders: '<svg viewBox="0 0 24 24"><path d="M9 3h6"></path><path d="M8 7h8"></path><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>',
+  create: '<svg viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>',
+  reports: '<svg viewBox="0 0 24 24"><path d="M4 19h16"></path><path d="M7 16l3-3 3 2 4-5"></path><path d="M7 8h.01"></path></svg>',
+  myOrders: '<svg viewBox="0 0 24 24"><path d="M3 7h18"></path><path d="M5 7l1 12h12l1-12"></path><path d="M9 11h6"></path><path d="M9 15h4"></path></svg>'
+};
+
 const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(location.search).get('tg_id');
 let role = 'user';
 
@@ -110,22 +151,37 @@ async function api(path, options={}) {
   return res.json();
 }
 
+function setContent(html) {
+  document.getElementById('content').innerHTML = html;
+}
+
+function showMainMenu() {
+  document.getElementById('menu').classList.remove('hidden');
+  setContent('');
+}
+
+function showSection(html) {
+  document.getElementById('menu').classList.add('hidden');
+  setContent(`
+    <button class="back-btn" onclick="showMainMenu()">← Orqaga</button>
+    ${html}
+  `);
+}
+
 function renderMenu(items) {
   const menu = document.getElementById('menu');
   menu.innerHTML = items.map(i => `
     <button class="menu-btn" onclick="${i.action}">
-      <span class="icon">${i.icon || '🔹'}</span>
+      <span class="icon">${i.icon}</span>
       <span>${i.label}</span>
     </button>
   `).join('');
 }
 
-function setContent(html) { document.getElementById('content').innerHTML = html; }
-
 async function loadProducts() {
   const data = await api(`/webapp/api/products?tg_id=${userId}`);
-  if (!data.products.length) return setContent('<div class="panel">Mahsulotlar yoʻq.</div>');
-  setContent(data.products.map(p => `
+  if (!data.products.length) return showSection('<div class="panel">Mahsulotlar yoʻq.</div>');
+  showSection(data.products.map(p => `
     <div class="card">
       <img src="${p.photo_url || ''}" onerror="this.style.display='none'" />
       <div class="card-body">
@@ -139,7 +195,7 @@ async function loadProducts() {
 }
 
 function openOrderForm(productId, productName) {
-  setContent(`
+  showSection(`
     <div class="panel">
       <h3>Buyurtma: ${productName}</h3>
       <input id="qty" placeholder="Miqdor (masalan: 2.5)" />
@@ -155,47 +211,54 @@ async function submitOrder(productId) {
   try {
     const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({tg_id:userId, product_id:productId, quantity, address})});
     tg.showAlert(`Buyurtma qabul qilindi. ID: ${data.order_id}`);
-  } catch (e) { tg.showAlert('Xato: ' + e.message); }
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
 }
 
 async function loadOrders() {
   const data = await api(`/webapp/api/orders?tg_id=${userId}`);
-  setContent(`<div class="panel">${data.orders.map(o => `<div>#${o.id} ${o.product_name} - ${o.quantity} (${o.status})</div>`).join('') || 'Buyurtmalar yoʻq.'}</div>`);
+  showSection(`<div class="panel">${data.orders.map(o => `<div>#${o.id} ${o.product_name} - ${o.quantity} (${o.status})</div>`).join('') || 'Buyurtmalar yoʻq.'}</div>`);
 }
 
 async function loadStats() {
   const data = await api(`/webapp/api/stats?tg_id=${userId}`);
-  setContent(`<div class="panel">Jami foydalanuvchilar: ${data.users}<br>Jami buyurtmalar: ${data.orders}<br>Ochiq: ${data.open_orders}<br>Yopilgan: ${data.closed_orders}</div>`);
+  showSection(`<div class="panel">Jami foydalanuvchilar: ${data.users}<br>Jami buyurtmalar: ${data.orders}<br>Ochiq: ${data.open_orders}<br>Yopilgan: ${data.closed_orders}</div>`);
 }
 
 async function loadReports() {
   const data = await api(`/webapp/api/reports?tg_id=${userId}`);
-  setContent(`<div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${data.closed_orders}<br>Jami summa: ${data.total_amount}</div>`);
+  showSection(`<div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${data.closed_orders}<br>Jami summa: ${data.total_amount}</div>`);
 }
 
-function showContact() { setContent('<div class="panel">☎️ +998955309999<br>☎️ +998953309999</div>'); }
+function showContact() {
+  showSection('<div class="panel">☎️ +998955309999<br>☎️ +998953309999</div>');
+}
 
 async function init() {
   const boot = await api(`/webapp/api/bootstrap?tg_id=${userId}`);
   role = boot.role;
+
   if (role === 'admin') {
     renderMenu([
-      {label:'Mahsulotlar', icon:'🛒', action:'loadProducts()'},
-      {label:'Aloqa', icon:'☎️', action:'showContact()'},
-      {label:'Statistika', icon:'📊', action:'loadStats()'},
-      {label:"Buyurtmalar ro\'yxati", icon:'📋', action:'loadOrders()'},
-      {label:'Buyurtma yaratish', icon:'➕', action:'loadProducts()'},
-      {label:'Hisobotlar', icon:'📈', action:'loadReports()'}
+      {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
+      {label:'Aloqa', icon:ICONS.contact, action:'showContact()'},
+      {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
+      {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
+      {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
+      {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'}
     ]);
   } else {
     renderMenu([
-      {label:'Mahsulotlar', icon:'🛒', action:'loadProducts()'},
-      {label:'Mening buyurtmalarim', icon:'📦', action:'loadOrders()'},
-      {label:'Aloqa', icon:'☎️', action:'showContact()'}
+      {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
+      {label:'Mening buyurtmalarim', icon:ICONS.myOrders, action:'loadOrders()'},
+      {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
     ]);
   }
-  loadProducts();
+
+  showMainMenu();
 }
+
 init();
 </script>
 </body>
