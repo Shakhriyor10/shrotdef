@@ -304,6 +304,15 @@ async function submitOrder(productId, productName, productPricePerKg) {
 }
 
 async function cancelOrder(orderId) {
+  const confirmed = await new Promise((resolve) => {
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm('Siz rostdan ham buyurtmani bekor qilmoqchimisiz?', resolve);
+      return;
+    }
+    resolve(window.confirm('Siz rostdan ham buyurtmani bekor qilmoqchimisiz?'));
+  });
+  if (!confirmed) return;
+
   try {
     await api(`/webapp/api/orders/${orderId}/cancel`, {
       method:'POST',
