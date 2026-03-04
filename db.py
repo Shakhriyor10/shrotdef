@@ -558,12 +558,20 @@ def list_orders_with_details(
 def list_orders_for_report(
     start_at: str,
     end_at: str,
+    status_filter: str = "closed",
 ) -> Iterable[sqlite3.Row]:
+    status_conditions = {
+        "closed": "orders.status = 'closed'",
+        "canceled": "orders.status = 'canceled'",
+        "all": "orders.status IN ('closed', 'canceled')",
+    }
+    where_status = status_conditions.get(status_filter, status_conditions["closed"])
     query = """
         SELECT
             orders.id,
             orders.quantity,
             orders.created_at,
+            orders.status,
             orders.order_price_per_kg,
             users.id AS user_id,
             users.first_name,
@@ -574,11 +582,11 @@ def list_orders_for_report(
         FROM orders
         JOIN users ON orders.user_id = users.id
         JOIN products ON orders.product_id = products.id
-        WHERE orders.status = 'closed'
+        WHERE {where_status}
           AND date(COALESCE(orders.closed_at, orders.created_at)) >= date(?)
           AND date(COALESCE(orders.closed_at, orders.created_at)) <= date(?)
         ORDER BY orders.created_at ASC
-    """
+    """.format(where_status=where_status)
     with get_connection() as conn:
         return conn.execute(query, (start_at, end_at)).fetchall()
 

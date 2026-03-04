@@ -161,6 +161,7 @@ const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(location.searc
 let role = 'user';
 let reportsEntriesCache = [];
 let reportsSearchQuery = '';
+let reportsTypeFilter = 'accepted';
 
 function applyTheme() {
   const root = document.documentElement;
@@ -506,9 +507,15 @@ function renderReportsResult(data) {
 
   const listHtml = items || emptyMessage;
   const reportsNode = document.getElementById('reportsResult');
+  const reportTypeLabels = {
+    accepted: 'Qabul qilingan buyurtmalar',
+    not_accepted: 'Qabul qilinmagan buyurtmalar',
+    all: 'Barcha buyurtmalar'
+  };
+  const currentReportType = reportTypeLabels[data.report_type] || reportTypeLabels.accepted;
   if (reportsNode) {
     reportsNode.innerHTML = `
-      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm</div>
+      <div class="panel">Davr: ${data.period}<br>Tur: ${currentReportType}<br>Buyurtmalar soni: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm</div>
       ${listHtml}
     `;
   }
@@ -528,13 +535,16 @@ function onReportsSearchInput(value) {
 async function applyReportsFilter() {
   const startDate = document.getElementById('reportStartDate')?.value;
   const endDate = document.getElementById('reportEndDate')?.value;
+  const reportType = document.getElementById('reportType')?.value || 'accepted';
   if (!startDate || !endDate) {
     tg.showAlert('Iltimos, ikkala sanani ham kiriting.');
     return;
   }
 
+  reportsTypeFilter = reportType;
+
   try {
-    const data = await api(`/webapp/api/reports?tg_id=${userId}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`);
+    const data = await api(`/webapp/api/reports?tg_id=${userId}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&report_type=${encodeURIComponent(reportType)}`);
     reportsEntriesCache = data.entries || [];
     const reportsNode = document.getElementById('reportsResult');
     if (reportsNode) {
@@ -549,12 +559,18 @@ async function applyReportsFilter() {
 async function loadReports() {
   const {startDate, endDate} = getCurrentMonthRange();
   reportsSearchQuery = '';
+  reportsTypeFilter = 'accepted';
 
   showSection(`
     <div class="panel">
       <b>Hisobot davri</b>
       <input id="reportStartDate" type="date" value="${startDate}" />
       <input id="reportEndDate" type="date" value="${endDate}" />
+      <select id="reportType">
+        <option value="accepted" ${reportsTypeFilter === 'accepted' ? 'selected' : ''}>Qabul qilingan</option>
+        <option value="not_accepted" ${reportsTypeFilter === 'not_accepted' ? 'selected' : ''}>Qabul qilinmagan</option>
+        <option value="all" ${reportsTypeFilter === 'all' ? 'selected' : ''}>Barchasi</option>
+      </select>
       <button class="buy-btn" onclick="applyReportsFilter()">Hisobotni yangilash</button>
       <input id="reportsSearch" placeholder="Qidirish: mijoz ismi yoki telefon" oninput="onReportsSearchInput(this.value)" />
     </div>
