@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shrot Savdo</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background:#f4f6f8; color:#1f2937; }
+    header { background:#0f766e; color:#fff; padding:14px; font-weight:700; }
+    .container { padding:12px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    button { border:none; border-radius:10px; padding:10px; cursor:pointer; }
+    .menu-btn { background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.12); font-weight:600; }
+    .card { background:#fff; margin-top:10px; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); overflow:hidden; }
+    .card img { width:100%; height:180px; object-fit:cover; background:#e5e7eb; }
+    .card-body { padding:10px; }
+    .muted { color:#6b7280; font-size:13px; }
+    .buy-btn { background:#0f766e; color:#fff; margin-top:8px; width:100%; }
+    .panel { background:#fff; padding:10px; border-radius:12px; margin-top:10px; }
+    input, textarea, select { width:100%; padding:8px; margin-top:8px; border-radius:8px; border:1px solid #d1d5db; box-sizing:border-box; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+  <header>Shrot Savdo Web App</header>
+  <div class="container">
+    <div id="menu" class="grid"></div>
+    <div id="content"></div>
+  </div>
+
+<script>
+const tg = window.Telegram.WebApp;
+tg.expand();
+const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(location.search).get('tg_id');
+let role = 'user';
+
+async function api(path, options={}) {
+  const res = await fetch(path, {headers:{'Content-Type':'application/json'}, ...options});
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function renderMenu(items) {
+  const menu = document.getElementById('menu');
+  menu.innerHTML = items.map(i => `<button class="menu-btn" onclick="${i.action}">${i.label}</button>`).join('');
+}
+
+function setContent(html) { document.getElementById('content').innerHTML = html; }
+
+async function loadProducts() {
+  const data = await api(`/webapp/api/products?tg_id=${userId}`);
+  if (!data.products.length) return setContent('<div class="panel">Mahsulotlar yoʻq.</div>');
+  setContent(data.products.map(p => `
+    <div class="card">
+      <img src="${p.photo_url || ''}" onerror="this.style.display='none'" />
+      <div class="card-body">
+        <div><b>${p.name}</b></div>
+        <div class="muted">${p.description || 'Tavsif yoʻq'}</div>
+        <div><b>${p.price_per_kg} soʻm / kg</b></div>
+        <button class="buy-btn" onclick="openOrderForm(${p.id}, '${(p.name||'').replace(/'/g,'')}')">Sotib olish</button>
+      </div>
+    </div>
+  `).join(''));
+}
+
+function openOrderForm(productId, productName) {
+  setContent(`
+    <div class="panel">
+      <h3>Buyurtma: ${productName}</h3>
+      <input id="qty" placeholder="Miqdor (masalan: 2.5)" />
+      <textarea id="addr" placeholder="Manzil"></textarea>
+      <button class="buy-btn" onclick="submitOrder(${productId})">Yuborish</button>
+    </div>
+  `);
+}
+
+async function submitOrder(productId) {
+  const quantity = document.getElementById('qty').value;
+  const address = document.getElementById('addr').value;
+  try {
+    const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({tg_id:userId, product_id:productId, quantity, address})});
+    tg.showAlert(`Buyurtma qabul qilindi. ID: ${data.order_id}`);
+  } catch (e) { tg.showAlert('Xato: ' + e.message); }
+}
+
+async function loadOrders() {
+  const data = await api(`/webapp/api/orders?tg_id=${userId}`);
+  setContent(`<div class="panel">${data.orders.map(o => `<div>#${o.id} ${o.product_name} - ${o.quantity} (${o.status})</div>`).join('') || 'Buyurtmalar yoʻq.'}</div>`);
+}
+
+async function loadStats() {
+  const data = await api(`/webapp/api/stats?tg_id=${userId}`);
+  setContent(`<div class="panel">Jami foydalanuvchilar: ${data.users}<br>Jami buyurtmalar: ${data.orders}<br>Ochiq: ${data.open_orders}<br>Yopilgan: ${data.closed_orders}</div>`);
+}
+
+async function loadReports() {
+  const data = await api(`/webapp/api/reports?tg_id=${userId}`);
+  setContent(`<div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${data.closed_orders}<br>Jami summa: ${data.total_amount}</div>`);
+}
+
+function showContact() { setContent('<div class="panel">☎️ +998955309999<br>☎️ +998953309999</div>'); }
+
+async function init() {
+  const boot = await api(`/webapp/api/bootstrap?tg_id=${userId}`);
+  role = boot.role;
+  if (role === 'admin') {
+    renderMenu([
+      {label:'Mahsulotlar', action:'loadProducts()'},
+      {label:'Aloqa', action:'showContact()'},
+      {label:'Statistika', action:'loadStats()'},
+      {label:"Buyurtmalar ro\'yxati", action:'loadOrders()'},
+      {label:'Buyurtma yaratish', action:'loadProducts()'},
+      {label:'Hisobotlar', action:'loadReports()'}
+    ]);
+  } else {
+    renderMenu([
+      {label:'Mahsulotlar', action:'loadProducts()'},
+      {label:'Mening buyurtmalarim', action:'loadOrders()'},
+      {label:'Aloqa', action:'showContact()'}
+    ]);
+  }
+  loadProducts();
+}
+init();
+</script>
+</body>
+</html>
