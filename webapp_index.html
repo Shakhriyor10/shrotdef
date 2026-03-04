@@ -465,6 +465,21 @@ function getCurrentMonthRange() {
   };
 }
 
+function parseReportNumber(value) {
+  const normalized = String(value ?? '')
+    .replace(/\s/g, '')
+    .replace(/,/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatReportTons(value) {
+  if (Math.abs(value - Math.round(value)) < 1e-9) {
+    return String(Math.round(value));
+  }
+  return value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
 function renderReportsResult(data) {
   const normalizedQuery = reportsSearchQuery.toLowerCase();
   const filteredEntries = reportsEntriesCache.filter((entry) => {
@@ -472,6 +487,9 @@ function renderReportsResult(data) {
     const haystack = `${entry.client} ${entry.product}`.toLowerCase();
     return haystack.includes(normalizedQuery);
   });
+
+  const filteredTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
+  const filteredAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
 
   const items = filteredEntries.map((entry, idx) => `
     <div class="panel">
@@ -490,7 +508,7 @@ function renderReportsResult(data) {
   const reportsNode = document.getElementById('reportsResult');
   if (reportsNode) {
     reportsNode.innerHTML = `
-      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${data.closed_orders}<br>Jami tonna: ${data.total_tons} t<br>Jami summa: ${data.total_amount}</div>
+      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm</div>
       ${listHtml}
     `;
   }
