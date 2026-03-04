@@ -1288,6 +1288,11 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                     row["order_price_per_kg"] or row["product_price_per_kg"],
                 ),
                 "can_cancel": (not admin_view and row["status"] == "open"),
+                "client_name": format_user_name(
+                    row["first_name"] if admin_view else None,
+                    row["last_name"] if admin_view else None,
+                ) if admin_view else None,
+                "client_phone": row["phone"] if admin_view else None,
             }
             for row in rows
         ]

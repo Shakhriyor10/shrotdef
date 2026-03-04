@@ -121,6 +121,32 @@
       padding: 12px;
       font-weight: 700;
     }
+
+    .filters {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .status-filters {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .chip-btn {
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-color);
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .chip-btn.active {
+      background: var(--button-bg);
+      color: var(--button-text);
+      border-color: var(--button-bg);
+    }
   </style>
 </head>
 <body>
@@ -325,14 +351,34 @@ async function cancelOrder(orderId) {
   }
 }
 
-async function loadOrders() {
-  const data = await api(`/webapp/api/orders?tg_id=${userId}`);
-  const cards = data.orders.map(o => {
+let ordersCache = [];
+let ordersSearchQuery = '';
+let ordersStatusFilter = 'all';
+
+function renderOrdersList() {
+  const filtered = ordersCache.filter((order) => {
+    const statusOk = ordersStatusFilter === 'all' || order.status === ordersStatusFilter;
+    if (!statusOk) return false;
+    if (!ordersSearchQuery) return true;
+    const query = ordersSearchQuery.toLowerCase();
+    const haystack = [
+      order.product_name,
+      order.quantity,
+      order.address,
+      order.client_name || '',
+      order.client_phone || ''
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
+  const cards = filtered.map(o => {
     const meta = statusMeta(o.status);
     const statusLabel = o.status_label || meta.label;
     return `
       <div class="panel">
         <div><b>Buyurtma #${o.id}</b></div>
+        ${o.client_name ? `<div>👤 Mijoz: <b>${o.client_name}</b></div>` : ''}
+        ${o.client_phone ? `<div>📞 Telefon: <b>${o.client_phone}</b></div>` : ''}
         <div>📦 Mahsulot: <b>${o.product_name}</b></div>
         <div>⚖️ Miqdor: <b>${o.quantity}</b></div>
         <div>📍 Manzil: <b>${o.address}</b></div>
@@ -342,7 +388,50 @@ async function loadOrders() {
       </div>
     `;
   }).join('');
-  showSection(cards || '<div class="panel">Buyurtmalar yoʻq.</div>');
+
+  const listNode = document.getElementById('ordersList');
+  if (listNode) {
+    listNode.innerHTML = cards || '<div class="panel">Buyurtmalar yoʻq.</div>';
+  }
+}
+
+function setOrdersStatusFilter(status) {
+  ordersStatusFilter = status;
+  document.querySelectorAll('.chip-btn[data-status]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.status === status);
+  });
+  renderOrdersList();
+}
+
+function onOrdersSearchInput(value) {
+  ordersSearchQuery = String(value || '').trim();
+  renderOrdersList();
+}
+
+async function loadOrders() {
+  const data = await api(`/webapp/api/orders?tg_id=${userId}`);
+  ordersCache = data.orders || [];
+  ordersSearchQuery = '';
+  ordersStatusFilter = 'all';
+
+  const searchPlaceholder = role === 'admin'
+    ? 'Qidirish: mijoz ismi yoki telefon...'
+    : 'Qidirish: mahsulot, manzil...';
+
+  showSection(`
+    <div class="filters panel">
+      <input id="ordersSearch" placeholder="${searchPlaceholder}" oninput="onOrdersSearchInput(this.value)" />
+      <div class="status-filters">
+        <button class="chip-btn active" data-status="all" onclick="setOrdersStatusFilter('all')">Barchasi</button>
+        <button class="chip-btn" data-status="open" onclick="setOrdersStatusFilter('open')">🟠 Ochiq</button>
+        <button class="chip-btn" data-status="closed" onclick="setOrdersStatusFilter('closed')">🟢 Qabul qilingan</button>
+        <button class="chip-btn" data-status="canceled" onclick="setOrdersStatusFilter('canceled')">🔴 Bekor qilingan</button>
+      </div>
+    </div>
+    <div id="ordersList"></div>
+  `);
+
+  renderOrdersList();
 }
 
 async function loadStats() {
