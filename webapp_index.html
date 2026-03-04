@@ -133,6 +133,27 @@
       grid-template-columns: 1fr;
       gap: 8px;
     }
+    .suggestions {
+      margin-top: 6px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--card-bg);
+      overflow: hidden;
+    }
+    .suggestion-item {
+      width: 100%;
+      border: none;
+      border-bottom: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-color);
+      text-align: left;
+      padding: 10px;
+      font-size: 14px;
+      border-radius: 0;
+    }
+    .suggestion-item:last-child {
+      border-bottom: none;
+    }
   </style>
 </head>
 <body>
@@ -161,6 +182,8 @@ const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(location.searc
 let role = 'user';
 let reportsEntriesCache = [];
 let reportsSearchQuery = '';
+let selectedClient = null;
+let clientSearchSeq = 0;
 
 function applyTheme() {
   const root = document.documentElement;
@@ -253,10 +276,16 @@ function statusMeta(status) {
 }
 
 function openOrderForm(productId, productName, productPricePerKg) {
+  selectedClient = null;
   showSection(`
     <div class="panel">
       <h3>Buyurtma: ${productName}</h3>
       <div id="formFields">
+        ${role === 'admin' ? `
+          <input id="clientName" placeholder="Mijoz ismi" oninput="onClientFieldInput()" />
+          <input id="clientPhone" placeholder="Mijoz raqami" oninput="onClientFieldInput()" />
+          <div id="clientSuggestions" class="suggestions hidden"></div>
+        ` : ''}
         <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="updateOrderTotal(${productPricePerKg})" />
         <textarea id="addr" placeholder="Manzil"></textarea>
         <div id="totalAmount" class="summary">Jami summa: —</div>
@@ -267,13 +296,63 @@ function openOrderForm(productId, productName, productPricePerKg) {
   `);
 }
 
+function renderClientSuggestions(clients) {
+  const box = document.getElementById('clientSuggestions');
+  if (!box) return;
+  if (!clients.length) {
+    box.innerHTML = '';
+    box.classList.add('hidden');
+    return;
+  }
+  box.innerHTML = clients.map(client => `
+    <button class="suggestion-item" onclick="selectClient(${client.id}, '${(client.name || '').replace(/'/g, "\\'")}', '${(client.phone || '').replace(/'/g, "\\'")}')">
+      <div><b>${client.name || 'Nomaʼlum'}</b></div>
+      <div class="muted">${client.phone || 'Raqam yoʻq'}</div>
+    </button>
+  `).join('');
+  box.classList.remove('hidden');
+}
+
+function selectClient(id, name, phone) {
+  selectedClient = {id, name, phone};
+  const nameNode = document.getElementById('clientName');
+  const phoneNode = document.getElementById('clientPhone');
+  if (nameNode) nameNode.value = name || '';
+  if (phoneNode) phoneNode.value = phone || '';
+  renderClientSuggestions([]);
+}
+
+async function onClientFieldInput() {
+  selectedClient = null;
+  const name = (document.getElementById('clientName')?.value || '').trim();
+  const phone = (document.getElementById('clientPhone')?.value || '').trim();
+  const query = (name || phone).trim();
+  if (query.length < 2) {
+    renderClientSuggestions([]);
+    return;
+  }
+  const seq = ++clientSearchSeq;
+  try {
+    const data = await api(`/webapp/api/clients/search?tg_id=${userId}&query=${encodeURIComponent(query)}`);
+    if (seq !== clientSearchSeq) return;
+    renderClientSuggestions(data.clients || []);
+  } catch {
+    renderClientSuggestions([]);
+  }
+}
+
 function previewOrder(productId, productName, productPricePerKg) {
   const quantity = (document.getElementById('qty')?.value || '').trim();
   const address = (document.getElementById('addr')?.value || '').trim();
+  const clientName = (document.getElementById('clientName')?.value || '').trim();
+  const clientPhone = (document.getElementById('clientPhone')?.value || '').trim();
   const total = calculateTotal(productPricePerKg, quantity);
   if (!quantity) return tg.showAlert('Iltimos, tonna miqdorini kiriting.');
   if (!address) return tg.showAlert('Iltimos, manzilni kiriting.');
   if (total === null) return tg.showAlert('Miqdor notoʻgʻri kiritildi.');
+  if (role === 'admin' && (!clientName || !clientPhone || !selectedClient)) {
+    return tg.showAlert('Mijozni bazadan tanlang (ism yoki raqam orqali).');
+  }
 
   const formFields = document.getElementById('formFields');
   const previewBtn = document.getElementById('previewBtn');
@@ -285,6 +364,7 @@ function previewOrder(productId, productName, productPricePerKg) {
     <div class="summary">
       <b>Tasdiqlashdan oldin tekshiring:</b><br>
       Mahsulot: <b>${productName}</b><br>
+      ${role === 'admin' ? `Mijoz: <b>${clientName}</b><br>Telefon: <b>${clientPhone}</b><br>` : ''}
       Miqdor: <b>${quantity} tonna</b><br>
       Manzil: <b>${address}</b><br>
       Umumiy summa: <b>${formatMoney(total)} soʻm</b>
@@ -307,10 +387,17 @@ function hidePreview() {
 async function submitOrder(productId, productName, productPricePerKg) {
   const quantity = (document.getElementById('qty')?.value || '').trim();
   const address = (document.getElementById('addr')?.value || '').trim();
+  const clientInfo = role === 'admin' ? selectedClient : null;
   try {
-    const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({tg_id:userId, product_id:productId, quantity, address})});
+    const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({
+      tg_id:userId,
+      product_id:productId,
+      quantity,
+      address,
+      selected_user_id: clientInfo?.id || null
+    })});
     const total = calculateTotal(productPricePerKg, quantity);
-    tg.showAlert(`Buyurtma qabul qilindi.\nMahsulot: ${productName}\nMiqdor: ${quantity} tonna\nManzil: ${address}\nUmumiy summa: ${formatMoney(total)} soʻm\nID: ${data.order_id}`);
+    tg.showAlert(`Buyurtma qabul qilindi.\nMahsulot: ${productName}${clientInfo ? `\nMijoz: ${clientInfo.name} (${clientInfo.phone})` : ''}\nMiqdor: ${quantity} tonna\nManzil: ${address}\nUmumiy summa: ${formatMoney(total)} soʻm\nID: ${data.order_id}`);
     openOrderForm(productId, productName, productPricePerKg);
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);

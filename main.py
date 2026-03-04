@@ -1275,6 +1275,26 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             )
         return web.json_response({"products": products})
 
+    async def clients_search(request: web.Request) -> web.Response:
+        tg_id = int(request.query.get("tg_id", "0") or 0)
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        query = (request.query.get("query") or "").strip()
+        if len(query) < 2:
+            return web.json_response({"clients": []})
+
+        clients = [
+            {
+                "id": row["id"],
+                "tg_id": row["tg_id"],
+                "name": format_user_name(row["first_name"], row["last_name"]),
+                "phone": row["phone"] or "",
+            }
+            for row in db.search_users(query)
+        ]
+        return web.json_response({"clients": clients})
+
     async def orders_get(request: web.Request) -> web.Response:
         tg_id = int(request.query.get("tg_id", "0") or 0)
         user = db.get_user_by_tg_id(tg_id)
@@ -1357,15 +1377,24 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         product_id = int(payload.get("product_id") or 0)
         quantity = parse_webapp_quantity(str(payload.get("quantity") or ""))
         address = (payload.get("address") or "").strip()
+        selected_user_id = int(payload.get("selected_user_id") or 0)
         if not quantity:
             return web.json_response({"error": "Minimal buyurtma 2 tonna."}, status=400)
         if not address:
             return web.json_response({"error": "Manzil majburiy."}, status=400)
-        user = db.get_user_by_tg_id(tg_id)
+        requester = db.get_user_by_tg_id(tg_id)
         product = db.get_product(product_id)
-        if not user or not product:
+        if not requester or not product:
             return web.json_response({"error": "Foydalanuvchi yoki mahsulot topilmadi."}, status=404)
-        order_id = db.add_order(user["id"], product_id, quantity, address, product["price_per_kg"])
+
+        order_user_id = requester["id"]
+        if is_admin(tg_id) and selected_user_id > 0:
+            selected_user = db.get_user_by_id(selected_user_id)
+            if not selected_user:
+                return web.json_response({"error": "Tanlangan mijoz topilmadi."}, status=404)
+            order_user_id = selected_user["id"]
+
+        order_id = db.add_order(order_user_id, product_id, quantity, address, product["price_per_kg"])
         await notify_admins_new_order(bot, order_id)
         return web.json_response({"ok": True, "order_id": order_id})
 
@@ -1425,6 +1454,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/webapp", serve_index)
     app.router.add_get("/webapp/api/bootstrap", bootstrap)
     app.router.add_get("/webapp/api/products", products_api)
+    app.router.add_get("/webapp/api/clients/search", clients_search)
     app.router.add_get("/webapp/api/orders", orders_get)
     app.router.add_post("/webapp/api/orders", orders_post)
     app.router.add_post("/webapp/api/orders/{order_id}/cancel", order_cancel)
