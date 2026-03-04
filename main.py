@@ -1387,6 +1387,16 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         if not is_admin(tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
 
+        report_type = (request.query.get("report_type") or "accepted").strip().lower()
+        report_type_map = {
+            "accepted": "closed",
+            "not_accepted": "canceled",
+            "all": "all",
+        }
+        status_filter = report_type_map.get(report_type)
+        if not status_filter:
+            return web.json_response({"error": "Report turi noto'g'ri."}, status=400)
+
         start_raw = (request.query.get("start_date") or "").strip()
         end_raw = (request.query.get("end_date") or "").strip()
         if start_raw and end_raw:
@@ -1402,12 +1412,19 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         if start > end:
             return web.json_response({"error": "Boshlanish sanasi tugash sanasidan katta bo'lishi mumkin emas."}, status=400)
 
-        rows = list(db.list_orders_for_report(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
+        rows = list(
+            db.list_orders_for_report(
+                start.strftime("%Y-%m-%d"),
+                end.strftime("%Y-%m-%d"),
+                status_filter=status_filter,
+            )
+        )
         total_amount, total_tons, entries = calculate_report_stats(rows)
         return web.json_response(
             {
                 "period": f"{start.strftime('%Y-%m-%d')} - {end.strftime('%Y-%m-%d')}",
-                "closed_orders": len(rows),
+                "report_type": report_type,
+                "orders_count": len(rows),
                 "total_amount": format_money_with_commas(total_amount),
                 "total_tons": format_tons(total_tons),
                 "entries": [
