@@ -28,10 +28,17 @@
     header {
       background: var(--header-bg);
       color: var(--text-color);
-      padding: 14px;
-      font-weight: 700;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border-color);
       text-align: center;
+    }
+
+    .brand-logo {
+      height: 44px;
+      width: auto;
+      max-width: 100%;
+      display: inline-block;
+      object-fit: contain;
     }
 
     .container { padding: 12px; }
@@ -178,7 +185,7 @@
   </style>
 </head>
 <body>
-  <header>Shrot Savdo</header>
+  <header><img class="brand-logo" src="img/logo.png" alt="Shrot Savdo logo" /></header>
   <div class="container">
     <div id="menu" class="grid"></div>
     <div id="content"></div>
