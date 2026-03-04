@@ -159,6 +159,8 @@ const ICONS = {
 
 const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(location.search).get('tg_id');
 let role = 'user';
+let reportsEntriesCache = [];
+let reportsSearchQuery = '';
 
 function applyTheme() {
   const root = document.documentElement;
@@ -452,9 +454,114 @@ async function loadStats() {
   showSection(`<div class="panel">Jami foydalanuvchilar: ${data.users}<br>Jami buyurtmalar: ${data.orders}<br>Ochiq: ${data.open_orders}<br>Yopilgan: ${data.closed_orders}</div>`);
 }
 
+function getCurrentMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return {
+    startDate: `${year}-${month}-01`,
+    endDate: `${year}-${month}-${day}`
+  };
+}
+
+function parseReportNumber(value) {
+  const normalized = String(value ?? '')
+    .replace(/\s/g, '')
+    .replace(/,/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatReportTons(value) {
+  if (Math.abs(value - Math.round(value)) < 1e-9) {
+    return String(Math.round(value));
+  }
+  return value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function renderReportsResult(data) {
+  const normalizedQuery = reportsSearchQuery.toLowerCase();
+  const filteredEntries = reportsEntriesCache.filter((entry) => {
+    if (!normalizedQuery) return true;
+    const haystack = `${entry.client} ${entry.product}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
+
+  const filteredTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
+  const filteredAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
+
+  const items = filteredEntries.map((entry, idx) => `
+    <div class="panel">
+      <b>${idx + 1}. ${entry.client}</b><br>
+      Mahsulot: ${entry.product}<br>
+      Miqdor: ${entry.tons} t<br>
+      Jami summa: ${entry.amount} so'm
+    </div>
+  `).join('');
+
+  const emptyMessage = reportsSearchQuery
+    ? "<div class='panel'>Qidiruv bo'yicha ma'lumot topilmadi.</div>"
+    : "<div class='panel'>Tanlangan davr bo'yicha ma'lumot topilmadi.</div>";
+
+  const listHtml = items || emptyMessage;
+  const reportsNode = document.getElementById('reportsResult');
+  if (reportsNode) {
+    reportsNode.innerHTML = `
+      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm</div>
+      ${listHtml}
+    `;
+  }
+}
+
+function onReportsSearchInput(value) {
+  reportsSearchQuery = String(value || '').trim();
+  const reportsNode = document.getElementById('reportsResult');
+  if (!reportsNode || !reportsNode.dataset.reportMeta) return;
+  try {
+    renderReportsResult(JSON.parse(reportsNode.dataset.reportMeta));
+  } catch {
+    // no-op
+  }
+}
+
+async function applyReportsFilter() {
+  const startDate = document.getElementById('reportStartDate')?.value;
+  const endDate = document.getElementById('reportEndDate')?.value;
+  if (!startDate || !endDate) {
+    tg.showAlert('Iltimos, ikkala sanani ham kiriting.');
+    return;
+  }
+
+  try {
+    const data = await api(`/webapp/api/reports?tg_id=${userId}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`);
+    reportsEntriesCache = data.entries || [];
+    const reportsNode = document.getElementById('reportsResult');
+    if (reportsNode) {
+      reportsNode.dataset.reportMeta = JSON.stringify(data);
+    }
+    renderReportsResult(data);
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
 async function loadReports() {
-  const data = await api(`/webapp/api/reports?tg_id=${userId}`);
-  showSection(`<div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${data.closed_orders}<br>Jami summa: ${data.total_amount}</div>`);
+  const {startDate, endDate} = getCurrentMonthRange();
+  reportsSearchQuery = '';
+
+  showSection(`
+    <div class="panel">
+      <b>Hisobot davri</b>
+      <input id="reportStartDate" type="date" value="${startDate}" />
+      <input id="reportEndDate" type="date" value="${endDate}" />
+      <button class="buy-btn" onclick="applyReportsFilter()">Hisobotni yangilash</button>
+      <input id="reportsSearch" placeholder="Qidirish: mijoz ismi yoki telefon" oninput="onReportsSearchInput(this.value)" />
+    </div>
+    <div id="reportsResult"></div>
+  `);
+
+  await applyReportsFilter();
 }
 
 function showContact() {
