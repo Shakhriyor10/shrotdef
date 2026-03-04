@@ -578,6 +578,13 @@ def parse_report_date(value: str) -> Optional[datetime]:
     return None
 
 
+def get_current_month_period(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
+    current = now or datetime.now(TASHKENT_TZ)
+    start = datetime(current.year, current.month, 1)
+    end = datetime(current.year, current.month, current.day)
+    return start, end
+
+
 def format_report_period(start_date: datetime, end_date: datetime) -> str:
     return f"{start_date.strftime('%Y-%m-%d')} — {end_date.strftime('%Y-%m-%d')}"
 
@@ -1379,18 +1386,38 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         tg_id = int(request.query.get("tg_id", "0") or 0)
         if not is_admin(tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
-        now = datetime.now(TASHKENT_TZ)
-        start = datetime(now.year, now.month, 1)
-        rows = list(db.list_orders_for_report(start.strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d")))
-        total_amount = 0.0
-        for row in rows:
-            qty_kg = parse_quantity_to_kg(row["quantity"] or "") or 0
-            total_amount += qty_kg * (row["order_price_per_kg"] or row["product_price_per_kg"] or 0)
+
+        start_raw = (request.query.get("start_date") or "").strip()
+        end_raw = (request.query.get("end_date") or "").strip()
+        if start_raw and end_raw:
+            start = parse_report_date(start_raw)
+            end = parse_report_date(end_raw)
+            if not start or not end:
+                return web.json_response({"error": "Sana formati noto'g'ri."}, status=400)
+        elif start_raw or end_raw:
+            return web.json_response({"error": "Boshlanish va tugash sanasi birga yuborilishi kerak."}, status=400)
+        else:
+            start, end = get_current_month_period()
+
+        if start > end:
+            return web.json_response({"error": "Boshlanish sanasi tugash sanasidan katta bo'lishi mumkin emas."}, status=400)
+
+        rows = list(db.list_orders_for_report(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
+        total_amount, total_tons, entries = calculate_report_stats(rows)
         return web.json_response(
             {
-                "period": f"{start.strftime('%Y-%m-%d')} - {now.strftime('%Y-%m-%d')}",
+                "period": f"{start.strftime('%Y-%m-%d')} - {end.strftime('%Y-%m-%d')}",
                 "closed_orders": len(rows),
                 "total_amount": format_money_with_commas(total_amount),
+                "total_tons": format_tons(total_tons),
+                "entries": [
+                    {
+                        "client": entry["name"],
+                        "product": entry["product"],
+                        "tons": format_tons(float(entry["tons"])),
+                    }
+                    for entry in entries
+                ],
             }
         )
 

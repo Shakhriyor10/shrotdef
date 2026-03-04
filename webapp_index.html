@@ -452,9 +452,66 @@ async function loadStats() {
   showSection(`<div class="panel">Jami foydalanuvchilar: ${data.users}<br>Jami buyurtmalar: ${data.orders}<br>Ochiq: ${data.open_orders}<br>Yopilgan: ${data.closed_orders}</div>`);
 }
 
+function getCurrentMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return {
+    startDate: `${year}-${month}-01`,
+    endDate: `${year}-${month}-${day}`
+  };
+}
+
+function renderReportsResult(data) {
+  const items = (data.entries || []).map((entry, idx) => `
+    <div class="panel">
+      <b>${idx + 1}. ${entry.client}</b><br>
+      Mahsulot: ${entry.product}<br>
+      Miqdor: ${entry.tons} t
+    </div>
+  `).join('');
+
+  const listHtml = items || "<div class='panel'>Tanlangan davr bo'yicha ma'lumot topilmadi.</div>";
+  const reportsNode = document.getElementById('reportsResult');
+  if (reportsNode) {
+    reportsNode.innerHTML = `
+      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${data.closed_orders}<br>Jami tonna: ${data.total_tons} t<br>Jami summa: ${data.total_amount}</div>
+      ${listHtml}
+    `;
+  }
+}
+
+async function applyReportsFilter() {
+  const startDate = document.getElementById('reportStartDate')?.value;
+  const endDate = document.getElementById('reportEndDate')?.value;
+  if (!startDate || !endDate) {
+    tg.showAlert('Iltimos, ikkala sanani ham kiriting.');
+    return;
+  }
+
+  try {
+    const data = await api(`/webapp/api/reports?tg_id=${userId}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`);
+    renderReportsResult(data);
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
 async function loadReports() {
-  const data = await api(`/webapp/api/reports?tg_id=${userId}`);
-  showSection(`<div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${data.closed_orders}<br>Jami summa: ${data.total_amount}</div>`);
+  const {startDate, endDate} = getCurrentMonthRange();
+
+  showSection(`
+    <div class="panel">
+      <b>Hisobot davri</b>
+      <input id="reportStartDate" type="date" value="${startDate}" />
+      <input id="reportEndDate" type="date" value="${endDate}" />
+      <button class="buy-btn" onclick="applyReportsFilter()">Hisobotni yangilash</button>
+    </div>
+    <div id="reportsResult"></div>
+  `);
+
+  await applyReportsFilter();
 }
 
 function showContact() {
