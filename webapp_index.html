@@ -130,6 +130,7 @@ const ICONS = {
 
 const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(location.search).get('tg_id');
 let role = 'user';
+const PRODUCT_PLACEHOLDER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="100%" height="100%" fill="%23d1d5db"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="30" fill="%236b7280" font-family="Arial">Rasm mavjud emas</text></svg>';
 
 function applyTheme() {
   const root = document.documentElement;
@@ -183,7 +184,7 @@ async function loadProducts() {
   if (!data.products.length) return showSection('<div class="panel">Mahsulotlar yoʻq.</div>');
   showSection(data.products.map(p => `
     <div class="card">
-      <img src="${p.photo_url || ''}" onerror="this.style.display='none'" />
+      <img src="${p.photo_url || PRODUCT_PLACEHOLDER}" onerror="if(this.src!==PRODUCT_PLACEHOLDER){this.src=PRODUCT_PLACEHOLDER}" />
       <div class="card-body">
         <div><b>${p.name}</b></div>
         <div class="muted">${p.description || 'Tavsif yoʻq'}</div>
