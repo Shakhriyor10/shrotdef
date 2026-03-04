@@ -229,6 +229,34 @@ def get_user_by_tg_id(tg_id: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+def get_user_by_id(user_id: int) -> Optional[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+
+def search_users(query: str, limit: int = 10) -> Iterable[sqlite3.Row]:
+    normalized = (query or "").strip()
+    if not normalized:
+        return []
+    pattern = f"%{normalized.lower()}%"
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, tg_id, first_name, last_name, phone
+            FROM users
+            WHERE lower(COALESCE(first_name, '')) LIKE ?
+               OR lower(COALESCE(last_name, '')) LIKE ?
+               OR lower(COALESCE(phone, '')) LIKE ?
+            ORDER BY last_active DESC
+            LIMIT ?
+            """,
+            (pattern, pattern, pattern, limit),
+        ).fetchall()
+
+
 def set_user_blocked(tg_id: int, blocked: bool) -> None:
     with get_connection() as conn:
         conn.execute(
