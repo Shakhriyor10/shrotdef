@@ -1415,6 +1415,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                         "client": entry["name"],
                         "product": entry["product"],
                         "tons": format_tons(float(entry["tons"])),
+                        "amount": format_money_with_commas(float(entry["amount"])),
                     }
                     for entry in entries
                 ],
