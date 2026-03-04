@@ -29,7 +29,7 @@ import db
 ADMIN_LIST = {8598163827, 8359092913, 5950335991, 45152058, 7746040125, 8328616747}
 GROUP_LIST = {-1003580758940,}
 REPORT_LIST = {8598163827, 8359092913, 5950335991, 45152058, 7746040125, 8328616747}
-WEB_APP_URL = "https://subcommissarial-paris-untensely.ngrok-free.dev"
+WEB_APP_URL = "https://subcommissarial-paris-untensely.ngrok-free.dev/webapp"
 WEB_APP_BIND_HOST = os.getenv("WEB_APP_BIND_HOST", "0.0.0.0")
 WEB_APP_BIND_PORT = 8081
 
