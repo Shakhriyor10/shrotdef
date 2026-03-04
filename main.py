@@ -240,6 +240,16 @@ def cancel_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def date_input_keyboard(default_date: datetime) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=default_date.strftime("%Y-%m-%d"))],
+            [KeyboardButton(text=BTN_CANCEL)],
+        ],
+        resize_keyboard=True,
+    )
+
+
 def block_action_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -1012,6 +1022,10 @@ def report_period_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def get_current_month_period() -> tuple[datetime, datetime]:
+    return get_month_range(datetime.now(TASHKENT_TZ), 0)
 
 
 def get_month_range(reference: datetime, offset: int) -> tuple[datetime, datetime]:
@@ -2122,15 +2136,23 @@ async def main() -> None:
     async def report_start(message: types.Message, state: FSMContext) -> None:
         if not can_view_reports(message.from_user.id):
             return
+        default_start_date, default_end_date = get_current_month_period()
+        await send_report_for_period(
+            message.bot,
+            message.chat.id,
+            message.from_user.id,
+            default_start_date,
+            default_end_date,
+        )
+        await state.update_data(
+            report_default_start=default_start_date.strftime("%Y-%m-%d"),
+            report_default_end=default_end_date.strftime("%Y-%m-%d"),
+        )
         await state.set_state(ReportStates.start_date)
         await message.answer(
-            "📅 Hisobot davrini tanlang yoki boshlanish sanasini kiriting "
-            "(YYYY-MM-DD yoki DD.MM.YYYY).",
-            reply_markup=report_period_keyboard(),
-        )
-        await message.answer(
-            "✍️ Sana kiritish uchun: boshlanish sanasini yuboring.",
-            reply_markup=cancel_keyboard(),
+            "📅 Boshlanish sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).\n"
+            f"Standart qiymat: {default_start_date.strftime('%Y-%m-%d')}",
+            reply_markup=date_input_keyboard(default_start_date),
         )
 
     @dp.callback_query(F.data.startswith("report_period:"))
@@ -2167,18 +2189,22 @@ async def main() -> None:
         if is_cancel_message(message):
             await cancel_admin_action(message, state)
             return
+        data = await state.get_data()
         start_date = parse_report_date(message.text or "")
         if not start_date:
+            default_start_date = datetime.strptime(data["report_default_start"], "%Y-%m-%d")
             await message.answer(
                 "⚠️ Sana formatini tekshiring (masalan: 2024-01-31 yoki 31.01.2024).",
-                reply_markup=cancel_keyboard(),
+                reply_markup=date_input_keyboard(default_start_date),
             )
             return
         await state.update_data(report_start=start_date.strftime("%Y-%m-%d"))
         await state.set_state(ReportStates.end_date)
+        default_end_date = datetime.strptime(data["report_default_end"], "%Y-%m-%d")
         await message.answer(
-            "📅 Hisobot uchun tugash sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).",
-            reply_markup=cancel_keyboard(),
+            "📅 Tugash sanasini kiriting (YYYY-MM-DD yoki DD.MM.YYYY).\n"
+            f"Standart qiymat: {default_end_date.strftime('%Y-%m-%d')}",
+            reply_markup=date_input_keyboard(default_end_date),
         )
 
     @dp.message(ReportStates.end_date)
@@ -2188,9 +2214,10 @@ async def main() -> None:
             return
         end_date = parse_report_date(message.text or "")
         if not end_date:
+            data = await state.get_data()
             await message.answer(
                 "⚠️ Sana formatini tekshiring (masalan: 2024-01-31 yoki 31.01.2024).",
-                reply_markup=cancel_keyboard(),
+                reply_markup=date_input_keyboard(datetime.strptime(data["report_default_end"], "%Y-%m-%d")),
             )
             return
         data = await state.get_data()
