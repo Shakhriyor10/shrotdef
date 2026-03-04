@@ -223,7 +223,8 @@ const ICONS = {
   ,location: '<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.2-6-11a6 6 0 1 1 12 0c0 5.8-6 11-6 11z"></path><circle cx="12" cy="10" r="2"></circle></svg>'
 };
 
-const userId = tg.initDataUnsafe?.user?.id || new URLSearchParams(location.search).get('tg_id');
+const rawUserId = tg.initDataUnsafe?.user?.id ?? new URLSearchParams(location.search).get('tg_id');
+const userId = (rawUserId === null || rawUserId === undefined || String(rawUserId).toLowerCase() === 'null' || String(rawUserId).toLowerCase() === 'undefined') ? '' : rawUserId;
 let role = 'user';
 let reportsEntriesCache = [];
 let reportsSearchQuery = '';
