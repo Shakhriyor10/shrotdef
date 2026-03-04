@@ -1293,6 +1293,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                     row["last_name"] if admin_view else None,
                 ) if admin_view else None,
                 "client_phone": row["phone"] if admin_view else None,
+                "can_admin_manage": (admin_view and row["status"] == "open"),
             }
             for row in rows
         ]
@@ -1315,6 +1316,33 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                 return web.json_response({"error": "Buyurtma allaqachon bekor qilingan."}, status=400)
             return web.json_response({"error": "Buyurtma topilmadi."}, status=404)
         return web.json_response({"ok": True})
+
+    async def order_admin_status(request: web.Request) -> web.Response:
+        order_id = int(request.match_info.get("order_id", "0") or 0)
+        payload = await request.json()
+        tg_id = int(payload.get("tg_id") or 0)
+        action = (payload.get("action") or "").strip().lower()
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        if action not in {"close", "cancel"}:
+            return web.json_response({"error": "Noto'g'ri action."}, status=400)
+
+        new_status = "closed" if action == "close" else "canceled"
+        updated, status, closed_by, canceled_by_role = db.update_order_status(
+            order_id,
+            new_status,
+            tg_id,
+        )
+        if not updated:
+            if status == "closed":
+                return web.json_response({"error": "Buyurtma allaqachon qabul qilingan."}, status=400)
+            if status == "canceled" and canceled_by_role == "user":
+                return web.json_response({"error": "Buyurtma foydalanuvchi tomonidan bekor qilingan."}, status=400)
+            if status == "canceled":
+                return web.json_response({"error": "Buyurtma allaqachon bekor qilingan."}, status=400)
+            return web.json_response({"error": "Buyurtma topilmadi."}, status=404)
+
+        return web.json_response({"ok": True, "status": new_status})
 
     async def orders_post(request: web.Request) -> web.Response:
         payload = await request.json()
@@ -1372,6 +1400,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/webapp/api/orders", orders_get)
     app.router.add_post("/webapp/api/orders", orders_post)
     app.router.add_post("/webapp/api/orders/{order_id}/cancel", order_cancel)
+    app.router.add_post("/webapp/api/orders/{order_id}/admin-status", order_admin_status)
     app.router.add_get("/webapp/api/stats", stats_api)
     app.router.add_get("/webapp/api/reports", reports_api)
 

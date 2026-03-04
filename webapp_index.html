@@ -128,24 +128,10 @@
       gap: 8px;
       margin-bottom: 10px;
     }
-    .status-filters {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-    .chip-btn {
-      padding: 8px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: transparent;
-      color: var(--text-color);
-      font-weight: 700;
-      font-size: 12px;
-    }
-    .chip-btn.active {
-      background: var(--button-bg);
-      color: var(--button-text);
-      border-color: var(--button-bg);
+    .filter-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
     }
   </style>
 </head>
@@ -384,6 +370,10 @@ function renderOrdersList() {
         <div>📍 Manzil: <b>${o.address}</b></div>
         <div>💵 Jami summa: <b>${o.total_amount}</b></div>
         <div style="margin-top:6px;color:${meta.color};font-weight:700;">Holat: ${statusLabel}</div>
+        ${o.can_admin_manage ? `
+          <button class="buy-btn" onclick="adminUpdateOrderStatus(${o.id}, 'close')">Qabul qilish</button>
+          <button class="secondary-btn" onclick="adminUpdateOrderStatus(${o.id}, 'cancel')">Bekor qilish</button>
+        ` : ''}
         ${o.can_cancel ? `<button class="secondary-btn" onclick="cancelOrder(${o.id})">Buyurtmani bekor qilish</button>` : ''}
       </div>
     `;
@@ -395,17 +385,38 @@ function renderOrdersList() {
   }
 }
 
-function setOrdersStatusFilter(status) {
-  ordersStatusFilter = status;
-  document.querySelectorAll('.chip-btn[data-status]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.status === status);
-  });
+function onOrdersStatusChange(value) {
+  ordersStatusFilter = value || 'all';
   renderOrdersList();
 }
 
 function onOrdersSearchInput(value) {
   ordersSearchQuery = String(value || '').trim();
   renderOrdersList();
+}
+
+async function adminUpdateOrderStatus(orderId, action) {
+  const title = action === 'close' ? 'qabul qilishni' : 'bekor qilishni';
+  const confirmed = await new Promise((resolve) => {
+    const text = `Siz rostdan ham buyurtmani ${title} tasdiqlaysizmi?`;
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm(text, resolve);
+      return;
+    }
+    resolve(window.confirm(text));
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(`/webapp/api/orders/${orderId}/admin-status`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId, action})
+    });
+    tg.showAlert(action === 'close' ? 'Buyurtma qabul qilindi.' : 'Buyurtma bekor qilindi.');
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
 }
 
 async function loadOrders() {
@@ -421,11 +432,13 @@ async function loadOrders() {
   showSection(`
     <div class="filters panel">
       <input id="ordersSearch" placeholder="${searchPlaceholder}" oninput="onOrdersSearchInput(this.value)" />
-      <div class="status-filters">
-        <button class="chip-btn active" data-status="all" onclick="setOrdersStatusFilter('all')">Barchasi</button>
-        <button class="chip-btn" data-status="open" onclick="setOrdersStatusFilter('open')">🟠 Ochiq</button>
-        <button class="chip-btn" data-status="closed" onclick="setOrdersStatusFilter('closed')">🟢 Qabul qilingan</button>
-        <button class="chip-btn" data-status="canceled" onclick="setOrdersStatusFilter('canceled')">🔴 Bekor qilingan</button>
+      <div class="filter-row">
+        <select id="statusFilter" onchange="onOrdersStatusChange(this.value)">
+          <option value="all">Barchasi</option>
+          <option value="open">🟠 Ochiq</option>
+          <option value="closed">🟢 Qabul qilingan</option>
+          <option value="canceled">🔴 Bekor qilingan</option>
+        </select>
       </div>
     </div>
     <div id="ordersList"></div>
