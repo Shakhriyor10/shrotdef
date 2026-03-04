@@ -1851,21 +1851,31 @@ async def main() -> None:
     async def show_stats(message: types.Message) -> None:
         if not is_admin(message.from_user.id):
             return
+
+        top_limit = 20
         total = db.count_users()
         active = db.count_active_users(30)
-        top_purchasers = db.list_top_purchasers()
-        top_active_users = db.list_top_active_users()
+        top_purchasers = list(db.list_top_purchasers(limit=top_limit + 1))
+        top_active_users = list(db.list_top_active_users(limit=top_limit + 1))
+
         purchaser_lines = []
-        for idx, row in enumerate(top_purchasers, start=1):
+        for idx, row in enumerate(top_purchasers[:top_limit], start=1):
             contact = format_user_contact(row["first_name"], row["last_name"], row["phone"])
             purchaser_lines.append(f"{idx}. {contact} — {row['order_count']} ta")
+        if len(top_purchasers) > top_limit:
+            purchaser_lines.append("… ro'yxat qisqartirildi")
+
         active_lines = []
-        for idx, row in enumerate(top_active_users, start=1):
+        for idx, row in enumerate(top_active_users[:top_limit], start=1):
             contact = format_user_contact(row["first_name"], row["last_name"], row["phone"])
             active_lines.append(f"{idx}. {contact} — {row['activity_count']} ta")
+        if len(top_active_users) > top_limit:
+            active_lines.append("… ro'yxat qisqartirildi")
+
         purchasers_text = "\n".join(purchaser_lines) if purchaser_lines else "Hozircha ma'lumot yo'q."
         active_users_text = "\n".join(active_lines) if active_lines else "Hozircha ma'lumot yo'q."
-        await message.answer(
+
+        stats_text = (
             "📊 Statistika:\n"
             f"👥 Umumiy foydalanuvchilar: {total}\n"
             f"🔥 So'nggi 30 kunda faol: {active}\n\n"
@@ -1874,6 +1884,24 @@ async def main() -> None:
             "🚀 Botdan ko'p foydalanadigan foydalanuvchilar:\n"
             f"{active_users_text}"
         )
+
+        if len(stats_text) > 4096:
+            await message.answer(
+                "📊 Statistika:\n"
+                f"👥 Umumiy foydalanuvchilar: {total}\n"
+                f"🔥 So'nggi 30 kunda faol: {active}"
+            )
+            await message.answer(
+                "🏆 Ko'p marta buyurtma bergan foydalanuvchilar:\n"
+                f"{purchasers_text}"
+            )
+            await message.answer(
+                "🚀 Botdan ko'p foydalanadigan foydalanuvchilar:\n"
+                f"{active_users_text}"
+            )
+            return
+
+        await message.answer(stats_text)
 
     @dp.message(F.text == BTN_REPORTS)
     async def report_start(message: types.Message, state: FSMContext) -> None:
