@@ -1273,17 +1273,43 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         user = db.get_user_by_tg_id(tg_id)
         if not user:
             return web.json_response({"orders": []})
-        rows = db.list_orders_with_details(limit=50) if is_admin(tg_id) else db.list_orders_for_user(user["id"])
+        admin_view = is_admin(tg_id)
+        rows = db.list_orders_with_details(limit=50) if admin_view else db.list_orders_for_user(user["id"])
         orders = [
             {
                 "id": row["id"],
                 "product_name": row["product_name"],
                 "quantity": row["quantity"],
+                "address": row["address"],
                 "status": row["status"],
+                "status_label": format_status_label(row["status"], row["canceled_by_role"]),
+                "total_amount": format_deal_price(
+                    row["quantity"],
+                    row["order_price_per_kg"] or row["product_price_per_kg"],
+                ),
+                "can_cancel": (not admin_view and row["status"] == "open"),
             }
             for row in rows
         ]
         return web.json_response({"orders": orders})
+
+    async def order_cancel(request: web.Request) -> web.Response:
+        order_id = int(request.match_info.get("order_id", "0") or 0)
+        payload = await request.json()
+        tg_id = int(payload.get("tg_id") or 0)
+        user = db.get_user_by_tg_id(tg_id)
+        if not user:
+            return web.json_response({"error": "Foydalanuvchi topilmadi."}, status=404)
+        updated, status, canceled_by_role = db.cancel_order_by_user(order_id, user["id"])
+        if not updated:
+            if status == "closed":
+                return web.json_response({"error": "Buyurtma allaqachon qabul qilingan, bekor qilib bo'lmaydi."}, status=400)
+            if status == "canceled" and canceled_by_role == "user":
+                return web.json_response({"error": "Buyurtma allaqachon siz tomonidan bekor qilingan."}, status=400)
+            if status == "canceled":
+                return web.json_response({"error": "Buyurtma allaqachon bekor qilingan."}, status=400)
+            return web.json_response({"error": "Buyurtma topilmadi."}, status=404)
+        return web.json_response({"ok": True})
 
     async def orders_post(request: web.Request) -> web.Response:
         payload = await request.json()
@@ -1340,6 +1366,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/webapp/api/products", products_api)
     app.router.add_get("/webapp/api/orders", orders_get)
     app.router.add_post("/webapp/api/orders", orders_post)
+    app.router.add_post("/webapp/api/orders/{order_id}/cancel", order_cancel)
     app.router.add_get("/webapp/api/stats", stats_api)
     app.router.add_get("/webapp/api/reports", reports_api)
 
