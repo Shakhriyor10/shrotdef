@@ -689,7 +689,7 @@ async function renderWarehouseProductsView() {
       Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
       Narx: ${formatMoney(item.price_per_kg)} so'm / kg
     </div>
-  `).join('') || '<div class="panel">Sklad bo'sh.</div>';
+  `).join('') || "<div class='panel'>Sklad bo'sh.</div>";
   const root = document.getElementById('warehouseResult');
   if (root) root.innerHTML = cards;
 }
@@ -707,7 +707,7 @@ async function createWarehouseReceipt() {
       method: 'POST',
       body: JSON.stringify({tg_id: userId, product_id: productId, quantity_tons: quantityTons, total_amount: totalAmount})
     });
-    tg.showAlert('✅ Prihod qo'shildi.');
+    tg.showAlert("✅ Prihod qo'shildi.");
     await loadWarehouse();
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);
