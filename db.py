@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -82,6 +83,38 @@ def init_db() -> None:
                 closed_at TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS warehouse_receipts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                quantity_tons REAL NOT NULL,
+                total_amount REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                created_by INTEGER,
+                FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS product_stock (
+                product_id INTEGER PRIMARY KEY,
+                quantity_tons REAL NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cashbox (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                amount REAL NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
             )
             """
         )
@@ -171,6 +204,10 @@ def init_db() -> None:
         )
         conn.execute(
             "UPDATE users SET last_active = COALESCE(NULLIF(last_active, ''), created_at, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO cashbox (id, amount, updated_at) VALUES (1, 0, ?)",
             (now,),
         )
 
@@ -381,7 +418,17 @@ def add_order(
     longitude: Optional[float] = None,
 ) -> int:
     now = now_tashkent().isoformat()
+    qty_tons = parse_quantity_to_tons(quantity)
+    if qty_tons is None or qty_tons <= 0:
+        raise ValueError("Invalid quantity")
     with get_connection() as conn:
+        stock_row = conn.execute(
+            "SELECT quantity_tons FROM product_stock WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()
+        available_tons = float(stock_row["quantity_tons"] if stock_row else 0)
+        if available_tons + 1e-9 < qty_tons:
+            raise ValueError("Not enough stock")
         cur = conn.execute(
             """
             INSERT INTO orders (
@@ -407,6 +454,16 @@ def add_order(
                 now,
                 order_price_per_kg,
             ),
+        )
+        conn.execute(
+            """
+            INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id) DO UPDATE SET
+                quantity_tons = quantity_tons - excluded.quantity_tons,
+                updated_at = excluded.updated_at
+            """,
+            (product_id, qty_tons, now),
         )
         return int(cur.lastrowid)
 
@@ -440,7 +497,17 @@ def add_admin_order(
     admin_id: int,
 ) -> int:
     now = now_tashkent().isoformat()
+    qty_tons = parse_quantity_to_tons(quantity)
+    if qty_tons is None or qty_tons <= 0:
+        raise ValueError("Invalid quantity")
     with get_connection() as conn:
+        stock_row = conn.execute(
+            "SELECT quantity_tons FROM product_stock WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()
+        available_tons = float(stock_row["quantity_tons"] if stock_row else 0)
+        if available_tons + 1e-9 < qty_tons:
+            raise ValueError("Not enough stock")
         cur = conn.execute(
             """
             INSERT INTO orders (
@@ -467,6 +534,21 @@ def add_admin_order(
                 admin_id,
             ),
         )
+        conn.execute(
+            """
+            INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id) DO UPDATE SET
+                quantity_tons = quantity_tons - excluded.quantity_tons,
+                updated_at = excluded.updated_at
+            """,
+            (product_id, qty_tons, now),
+        )
+        total_amount = qty_tons * 1000 * float(order_price_per_kg)
+        conn.execute(
+            "UPDATE cashbox SET amount = amount + ?, updated_at = ? WHERE id = 1",
+            (total_amount, now),
+        )
         return int(cur.lastrowid)
 
 
@@ -487,6 +569,10 @@ def update_order_status(
         if current_status != "open":
             return False, current_status, row["closed_by"], row["canceled_by_role"]
         canceled_by_role = "admin" if new_status == "canceled" else None
+        order_row = conn.execute(
+            "SELECT product_id, quantity FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
         conn.execute(
             """
             UPDATE orders
@@ -495,6 +581,19 @@ def update_order_status(
             """,
             (new_status, now, admin_id, canceled_by_role, order_id),
         )
+        if new_status == "canceled" and order_row:
+            qty_tons = parse_quantity_to_tons(order_row["quantity"])
+            if qty_tons and qty_tons > 0:
+                conn.execute(
+                    """
+                    INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(product_id) DO UPDATE SET
+                        quantity_tons = quantity_tons + excluded.quantity_tons,
+                        updated_at = excluded.updated_at
+                    """,
+                    (order_row["product_id"], qty_tons, now),
+                )
         return True, new_status, admin_id, canceled_by_role
 
 
@@ -502,11 +601,11 @@ def cancel_order_by_user(
     order_id: int,
     user_id: int,
 ) -> tuple[bool, Optional[str], Optional[str]]:
-    now = datetime.utcnow().isoformat()
+    now = now_tashkent().isoformat()
     with get_connection() as conn:
         row = conn.execute(
             """
-            SELECT status, canceled_by_role
+            SELECT status, canceled_by_role, product_id, quantity
             FROM orders
             WHERE id = ? AND user_id = ?
             """,
@@ -528,7 +627,91 @@ def cancel_order_by_user(
             """,
             (now, order_id, user_id),
         )
+        qty_tons = parse_quantity_to_tons(row["quantity"])
+        if qty_tons and qty_tons > 0:
+            conn.execute(
+                """
+                INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(product_id) DO UPDATE SET
+                    quantity_tons = quantity_tons + excluded.quantity_tons,
+                    updated_at = excluded.updated_at
+                """,
+                (row["product_id"], qty_tons, now),
+            )
         return True, "canceled", "user"
+
+
+def parse_quantity_to_tons(value: str) -> Optional[float]:
+    cleaned = (value or "").strip().lower().replace(",", ".")
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)", cleaned)
+    if not match:
+        return None
+    number = float(match.group(1))
+    if "kg" in cleaned:
+        return number / 1000
+    return number
+
+
+def list_stock_products() -> Iterable[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                p.id,
+                p.name,
+                p.price_per_kg,
+                COALESCE(ps.quantity_tons, 0) AS quantity_tons
+            FROM products p
+            LEFT JOIN product_stock ps ON ps.product_id = p.id
+            WHERE p.is_deleted = 0
+            ORDER BY p.name ASC
+            """
+        ).fetchall()
+
+
+def add_stock_receipt(product_id: int, quantity_tons: float, total_amount: float, created_by: Optional[int]) -> int:
+    if quantity_tons <= 0:
+        raise ValueError("Quantity must be > 0")
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO warehouse_receipts (product_id, quantity_tons, total_amount, created_at, created_by)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (product_id, quantity_tons, total_amount, now, created_by),
+        )
+        conn.execute(
+            """
+            INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id) DO UPDATE SET
+                quantity_tons = quantity_tons + excluded.quantity_tons,
+                updated_at = excluded.updated_at
+            """,
+            (product_id, quantity_tons, now),
+        )
+        conn.execute(
+            "UPDATE cashbox SET amount = amount - ?, updated_at = ? WHERE id = 1",
+            (total_amount, now),
+        )
+        return int(cur.lastrowid)
+
+
+def get_cashbox_amount() -> float:
+    with get_connection() as conn:
+        row = conn.execute("SELECT amount FROM cashbox WHERE id = 1").fetchone()
+    return float(row["amount"] if row else 0)
+
+
+def set_cashbox_amount(amount: float) -> None:
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE cashbox SET amount = ?, updated_at = ? WHERE id = 1",
+            (amount, now),
+        )
 
 
 def count_orders() -> int:
