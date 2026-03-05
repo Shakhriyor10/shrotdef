@@ -1418,12 +1418,32 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not is_admin(tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
+        top_limit = 20
+        top_purchasers = [
+            {
+                "name": format_user_name(row["first_name"], row["last_name"]),
+                "phone": row["phone"] or "📞 Telefon yo'q",
+                "order_count": int(row["order_count"]),
+            }
+            for row in db.list_top_purchasers(limit=top_limit)
+        ]
+        top_active_users = [
+            {
+                "name": format_user_name(row["first_name"], row["last_name"]),
+                "phone": row["phone"] or "📞 Telefon yo'q",
+                "activity_count": int(row["activity_count"]),
+            }
+            for row in db.list_top_active_users(limit=top_limit)
+        ]
         return web.json_response(
             {
                 "users": db.count_users(),
                 "orders": db.count_orders(),
                 "open_orders": db.count_orders_by_status("open"),
                 "closed_orders": db.count_orders_by_status("closed"),
+                "active_30_days": db.count_active_users(30),
+                "top_purchasers": top_purchasers,
+                "top_active_users": top_active_users,
             }
         )
 

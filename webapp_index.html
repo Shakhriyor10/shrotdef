@@ -340,6 +340,29 @@ function formatMoney(value) {
   return Number(value || 0).toLocaleString('ru-RU');
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderStatsList(items, key) {
+  if (!Array.isArray(items) || !items.length) {
+    return "<div class='panel'>Hozircha ma'lumot yo'q.</div>";
+  }
+  return `
+    <div class="panel">
+      ${items.map((item, idx) => {
+        const metric = Number(item?.[key] || 0);
+        return `${idx + 1}. ${escapeHtml(item.name)} (${escapeHtml(item.phone)}) — ${metric} ta`;
+      }).join('<br>')}
+    </div>
+  `;
+}
+
 function calculateTotal(pricePerKg, qtyTons) {
   const tons = Number(String(qtyTons).replace(',', '.'));
   if (!Number.isFinite(tons) || tons <= 0) return null;
@@ -626,7 +649,19 @@ async function loadOrders() {
 
 async function loadStats() {
   const data = await api(`/webapp/api/stats?tg_id=${userId}`);
-  showSection(`<div class="panel">Jami foydalanuvchilar: ${data.users}<br>Jami buyurtmalar: ${data.orders}<br>Ochiq: ${data.open_orders}<br>Yopilgan: ${data.closed_orders}</div>`);
+  showSection(`
+    <div class="panel">
+      Jami foydalanuvchilar: ${data.users}<br>
+      So'nggi 30 kunda faol: ${data.active_30_days}<br>
+      Jami buyurtmalar: ${data.orders}<br>
+      Ochiq: ${data.open_orders}<br>
+      Yopilgan: ${data.closed_orders}
+    </div>
+    <div class="panel"><b>🏆 Ko'p marta buyurtma bergan foydalanuvchilar:</b></div>
+    ${renderStatsList(data.top_purchasers, 'order_count')}
+    <div class="panel"><b>🚀 Botdan ko'p foydalanadigan foydalanuvchilar:</b></div>
+    ${renderStatsList(data.top_active_users, 'activity_count')}
+  `);
 }
 
 function getCurrentMonthRange() {
