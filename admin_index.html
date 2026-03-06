@@ -349,6 +349,17 @@
       <button class="secondary-btn" onclick="closeCashEditModal()">Bekor qilish</button>
     </div>
   </div>
+  <div id="productEditModal" class="cash-modal" onclick="closeProductEditModal(event)">
+    <div class="panel cash-modal-card" onclick="event.stopPropagation()">
+      <h3>Mahsulotni tahrirlash</h3>
+      <input id="productEditName" placeholder="Nomi" />
+      <input id="productEditPrice" type="number" step="0.01" placeholder="Narx (1kg)" />
+      <input id="productEditStock" type="number" step="0.001" placeholder="Sklad (tonna)" />
+      <input id="productEditPhoto" type="file" accept="image/*" />
+      <button class="buy-btn" onclick="saveProductEditModal()">Saqlash</button>
+      <button class="secondary-btn" onclick="closeProductEditModal()">Bekor qilish</button>
+    </div>
+  </div>
   <div class="app-shell">
     <header>
       <div class="brand"><img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span></div>
@@ -392,6 +403,7 @@ let reportsEntriesCache = [];
 let reportsSearchQuery = '';
 let selectedClient = null;
 let clientSearchSeq = 0;
+let editingProductId = null;
 
 function applyTheme() {
   const root = document.documentElement;
@@ -502,11 +514,35 @@ function renderMenu(items) {
   `).join('');
 }
 
-async function saveProductChanges(productId) {
-  const name = (document.getElementById(`editName_${productId}`)?.value || '').trim();
-  const price = Number(document.getElementById(`editPrice_${productId}`)?.value || 0);
-  const stock = Number(document.getElementById(`editStock_${productId}`)?.value || 0);
-  const fileInput = document.getElementById(`editPhoto_${productId}`);
+async function openProductEditModal(productId) {
+  const data = await api(`/webapp/api/products?tg_id=${userId}`);
+  const product = (data.products || []).find((p) => Number(p.id) === Number(productId));
+  if (!product) {
+    tg.showAlert("Mahsulot topilmadi.");
+    return;
+  }
+  editingProductId = Number(productId);
+  document.getElementById('productEditName').value = product.name || '';
+  document.getElementById('productEditPrice').value = Number(product.price_per_kg || 0);
+  document.getElementById('productEditStock').value = Number(product.stock_tons || 0);
+  document.getElementById('productEditPhoto').value = '';
+  const modal = document.getElementById('productEditModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeProductEditModal(event) {
+  if (event && event.target && event.target.id !== 'productEditModal') return;
+  const modal = document.getElementById('productEditModal');
+  if (modal) modal.style.display = 'none';
+  editingProductId = null;
+}
+
+async function saveProductEditModal() {
+  if (!editingProductId) return;
+  const name = (document.getElementById('productEditName')?.value || '').trim();
+  const price = Number(document.getElementById('productEditPrice')?.value || 0);
+  const stock = Number(document.getElementById('productEditStock')?.value || 0);
+  const fileInput = document.getElementById('productEditPhoto');
 
   let photoDataUrl = '';
   if (fileInput && fileInput.files && fileInput.files[0]) {
@@ -514,7 +550,7 @@ async function saveProductChanges(productId) {
   }
 
   try {
-    await api(`/webapp/api/products/${productId}/update`, {
+    await api(`/webapp/api/products/${editingProductId}/update`, {
       method:'POST',
       body: JSON.stringify({
         tg_id: userId,
@@ -525,14 +561,11 @@ async function saveProductChanges(productId) {
       })
     });
     tg.showAlert('✅ Mahsulot yangilandi');
+    closeProductEditModal();
     await loadManageProducts();
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);
   }
-}
-
-function toggleProductEdit(productId) {
-  document.getElementById(`editBlock_${productId}`)?.classList.toggle('hidden');
 }
 
 async function loadManageProducts() {
@@ -544,14 +577,7 @@ async function loadManageProducts() {
         <div><b>${p.name}</b></div>
         <div class="muted">Narx: ${formatMoney(p.price_per_kg)} so'm/kg</div>
         <div class="muted">Sklad: ${Number(p.stock_tons || 0).toLocaleString('ru-RU')} tonna</div>
-        <button class="buy-btn" onclick="toggleProductEdit(${p.id})">O'zgartirish</button>
-        <div id="editBlock_${p.id}" class="hidden">
-          <input id="editName_${p.id}" value="${escapeHtml(p.name || '')}" placeholder="Nomi" />
-          <input id="editPrice_${p.id}" type="number" step="0.01" value="${Number(p.price_per_kg || 0)}" placeholder="Narx (1kg)" />
-          <input id="editStock_${p.id}" type="number" step="0.001" value="${Number(p.stock_tons || 0)}" placeholder="Sklad (tonna)" />
-          <input id="editPhoto_${p.id}" type="file" accept="image/*" />
-          <button class="buy-btn" onclick="saveProductChanges(${p.id})">Saqlash</button>
-        </div>
+        <button class="buy-btn" onclick="openProductEditModal(${p.id})">O'zgartirish</button>
       </div>
     </div>
   `).join('') || "<div class='panel'>Mahsulotlar yo'q.</div>";
