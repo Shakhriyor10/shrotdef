@@ -20,7 +20,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
+from aiogram.types import (BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup,
                            KeyboardButton, ReplyKeyboardMarkup)
 from aiogram.utils.media_group import MediaGroupBuilder
 
@@ -595,6 +595,51 @@ def get_current_month_period(now: Optional[datetime] = None) -> tuple[datetime, 
 
 def format_report_period(start_date: datetime, end_date: datetime) -> str:
     return f"{start_date.strftime('%Y-%m-%d')} — {end_date.strftime('%Y-%m-%d')}"
+
+
+def _pdf_escape_text(value: str) -> str:
+    ascii_text = str(value or "").encode("latin-1", "replace").decode("latin-1")
+    return ascii_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def build_simple_report_pdf(title: str, lines: list[str]) -> bytes:
+    text_ops = ["BT", "/F1 10 Tf", "40 800 Td", "14 TL", f"({_pdf_escape_text(title)}) Tj"]
+    for line in lines:
+        text_ops.append(f"T* ({_pdf_escape_text(line)}) Tj")
+    text_ops.append("ET")
+    stream_data = "\n".join(text_ops).encode("latin-1", "replace")
+
+    objects: list[bytes] = []
+    objects.append(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+    objects.append(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+    objects.append(b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+    objects.append(
+        b"4 0 obj\n<< /Length "
+        + str(len(stream_data)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream_data
+        + b"\nendstream\nendobj\n"
+    )
+    objects.append(b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+
+    xref_offset = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for off in offsets[1:]:
+        pdf.extend(f"{off:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode("ascii")
+    )
+    return bytes(pdf)
 
 
 def format_tons(value: float) -> str:
@@ -1763,6 +1808,47 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             }
         )
 
+    async def reports_send_pdf_api(request: web.Request) -> web.Response:
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        period = str(payload.get("period") or "").strip() or datetime.now().strftime("%Y-%m-%d")
+        rows = payload.get("rows") or []
+        if not isinstance(rows, list) or not rows:
+            return web.json_response({"error": "Eksport uchun ma'lumot yo'q."}, status=400)
+
+        lines = [f"Davr: {period}", ""]
+        lines.append("Mijoz | ID | Mahsulot | Tonna | Jami | To'langan | To'lanmagan")
+        for row in rows[:300]:
+            client = str(row.get("client") or "")
+            order_id = str(row.get("order_id") or "")
+            product = str(row.get("product") or "")
+            tons = str(row.get("tons") or "")
+            amount = str(row.get("amount") or "")
+            paid = str(row.get("paid_amount") or "")
+            unpaid = str(row.get("unpaid_amount") or "")
+            lines.append(f"{client} | {order_id} | {product} | {tons} | {amount} | {paid} | {unpaid}")
+
+        total_tons = float(payload.get("total_tons") or 0)
+        total_amount = float(payload.get("total_amount") or 0)
+        total_paid = float(payload.get("total_paid") or 0)
+        total_unpaid = float(payload.get("total_unpaid") or 0)
+        lines.append("")
+        lines.append(
+            f"Jami: tonna={format_tons(total_tons)}, summa={format_money_with_commas(total_amount)}, to'langan={format_money_with_commas(total_paid)}, to'lanmagan={format_money_with_commas(total_unpaid)}"
+        )
+
+        pdf_bytes = build_simple_report_pdf("Hisobot", lines)
+        file_name = f"hisobot_{period}.pdf".replace(" ", "_").replace(":", "-")
+        await bot.send_document(
+            chat_id=tg_id,
+            document=BufferedInputFile(pdf_bytes, filename=file_name),
+            caption=f"📄 Hisobot PDF ({period})",
+        )
+        return web.json_response({"ok": True})
+
     async def reports_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not is_admin(tg_id):
@@ -1850,6 +1936,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/webapp/api/cashbox", cashbox_set_api)
     app.router.add_get("/webapp/api/stats", stats_api)
     app.router.add_get("/webapp/api/reports", reports_api)
+    app.router.add_post("/webapp/api/reports/send-pdf", reports_send_pdf_api)
 
     runner = web.AppRunner(app)
     await runner.setup()
