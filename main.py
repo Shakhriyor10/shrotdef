@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -1146,27 +1147,20 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
         f"🏬 Sklad: {format_tons(stock_tons)} tonna"
     )
     if photos:
-        if isinstance(photos[0], str) and photos[0].startswith("data:image"):
-            await bot.send_message(
-                chat_id=chat_id,
-                text=caption,
-                reply_markup=product_inline_keyboard(product["id"], admin, in_stock=stock_tons > 0),
-            )
-            return
         try:
+            main_photo = photo_input_from_storage(photos[0], f"product_{product['id']}_main")
             await bot.send_photo(
                 chat_id=chat_id,
-                photo=photos[0],
+                photo=main_photo,
                 caption=caption,
                 reply_markup=product_inline_keyboard(product["id"], admin, in_stock=stock_tons > 0),
             )
-        except TelegramBadRequest as exc:
+        except (TelegramBadRequest, ValueError) as exc:
             logging.warning(
                 "Failed to send product photo for product %s: %s",
                 product["id"],
                 exc,
             )
-            db.set_product_photos(product["id"], [])
             await bot.send_message(
                 chat_id=chat_id,
                 text=caption,
@@ -1176,8 +1170,9 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
         remaining_photos = photos[1:3]
         if len(remaining_photos) == 1:
             try:
-                await bot.send_photo(chat_id=chat_id, photo=remaining_photos[0])
-            except TelegramBadRequest as exc:
+                extra_photo = photo_input_from_storage(remaining_photos[0], f"product_{product['id']}_extra_1")
+                await bot.send_photo(chat_id=chat_id, photo=extra_photo)
+            except (TelegramBadRequest, ValueError) as exc:
                 logging.warning(
                     "Failed to send additional product photo for product %s: %s",
                     product["id"],
@@ -1185,11 +1180,11 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
                 )
         elif len(remaining_photos) > 1:
             builder = MediaGroupBuilder()
-            for file_id in remaining_photos:
-                builder.add_photo(media=file_id)
             try:
+                for index, photo in enumerate(remaining_photos, start=1):
+                    builder.add_photo(media=photo_input_from_storage(photo, f"product_{product['id']}_extra_{index}"))
                 await bot.send_media_group(chat_id=chat_id, media=builder.build())
-            except TelegramBadRequest as exc:
+            except (TelegramBadRequest, ValueError) as exc:
                 logging.warning(
                     "Failed to send product media group for product %s: %s",
                     product["id"],
@@ -1306,6 +1301,20 @@ async def resolve_photo_url(bot: Bot, file_id: Optional[str]) -> Optional[str]:
     except Exception:
         return None
     return f"https://api.telegram.org/file/bot{bot.token}/{file.file_path}"
+
+
+def photo_input_from_storage(value: str, default_name: str) -> str | BufferedInputFile:
+    if value.startswith("data:image"):
+        header, _, encoded = value.partition(",")
+        if not encoded:
+            raise ValueError("Missing image payload")
+        mime_match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64$", header)
+        if not mime_match:
+            raise ValueError("Unsupported data URL format")
+        extension = mime_match.group(1).split("/", 1)[1].split("+", 1)[0]
+        payload = base64.b64decode(encoded, validate=True)
+        return BufferedInputFile(payload, filename=f"{default_name}.{extension}")
+    return value
 
 
 def parse_webapp_quantity(value: str) -> Optional[str]:
