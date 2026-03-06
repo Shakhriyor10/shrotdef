@@ -1196,10 +1196,16 @@ def list_orders_for_report(
             users.last_name,
             users.phone,
             products.name AS product_name,
-            products.price_per_kg AS product_price_per_kg
+            products.price_per_kg AS product_price_per_kg,
+            COALESCE(payments.paid_amount, 0) AS paid_amount
         FROM orders
         JOIN users ON orders.user_id = users.id
         JOIN products ON orders.product_id = products.id
+        LEFT JOIN (
+            SELECT order_id, SUM(amount) AS paid_amount
+            FROM order_payments
+            GROUP BY order_id
+        ) AS payments ON payments.order_id = orders.id
         WHERE orders.status = 'closed'
           AND date(COALESCE(orders.closed_at, orders.created_at)) >= date(?)
           AND date(COALESCE(orders.closed_at, orders.created_at)) <= date(?)

@@ -1068,13 +1068,19 @@ function renderReportsResult(data) {
 
   const filteredTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
   const filteredAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
+  const filteredPaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.paid_amount), 0);
+  const filteredUnpaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.unpaid_amount), 0);
 
   const items = filteredEntries.map((entry, idx) => `
     <div class="panel">
       <b>${idx + 1}. ${entry.client}</b><br>
+      Buyurtma: #${entry.order_id}<br>
       Mahsulot: ${entry.product}<br>
+      Sana: ${formatDateTime(entry.created_at)}<br>
       Miqdor: ${entry.tons} t<br>
-      Jami summa: ${entry.amount} so'm
+      Jami summa: ${entry.amount} so'm<br>
+      To'langan: ${entry.paid_amount} so'm<br>
+      To'lanmagan: ${entry.unpaid_amount} so'm
     </div>
   `).join('');
 
@@ -1086,7 +1092,7 @@ function renderReportsResult(data) {
   const reportsNode = document.getElementById('reportsResult');
   if (reportsNode) {
     reportsNode.innerHTML = `
-      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm</div>
+      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm<br>Shundan to'langan: ${formatMoney(filteredPaid)} so'm<br>Shundan to'lanmagan: ${formatMoney(filteredUnpaid)} so'm</div>
       ${listHtml}
     `;
   }

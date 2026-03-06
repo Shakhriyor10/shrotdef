@@ -1749,22 +1749,46 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             return web.json_response({"error": "Boshlanish sanasi tugash sanasidan katta bo'lishi mumkin emas."}, status=400)
 
         rows = list(db.list_orders_for_report(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
-        total_amount, total_tons, entries = calculate_report_stats(rows)
+        total_amount = 0.0
+        total_tons = 0.0
+        total_paid = 0.0
+        total_unpaid = 0.0
+        entries: list[dict[str, object]] = []
+        for row in rows:
+            qty_kg = parse_quantity_to_kg(row["quantity"])
+            price_per_kg = row["order_price_per_kg"] or row["product_price_per_kg"]
+            if qty_kg is None or price_per_kg is None:
+                continue
+            amount = float(qty_kg * price_per_kg)
+            tons = float(qty_kg / 1000)
+            paid = min(float(row["paid_amount"] or 0), amount)
+            unpaid = max(amount - paid, 0)
+            total_amount += amount
+            total_tons += tons
+            total_paid += paid
+            total_unpaid += unpaid
+            entries.append(
+                {
+                    "order_id": int(row["id"]),
+                    "client": format_user_contact(row["first_name"], row["last_name"], row["phone"]),
+                    "product": row["product_name"],
+                    "tons": format_tons(tons),
+                    "amount": format_money_with_commas(amount),
+                    "paid_amount": format_money_with_commas(paid),
+                    "unpaid_amount": format_money_with_commas(unpaid),
+                    "created_at": row["created_at"],
+                }
+            )
+
         return web.json_response(
             {
                 "period": f"{start.strftime('%Y-%m-%d')} - {end.strftime('%Y-%m-%d')}",
-                "closed_orders": len(rows),
+                "closed_orders": len(entries),
                 "total_amount": format_money_with_commas(total_amount),
                 "total_tons": format_tons(total_tons),
-                "entries": [
-                    {
-                        "client": entry["name"],
-                        "product": entry["product"],
-                        "tons": format_tons(float(entry["tons"])),
-                        "amount": format_money_with_commas(float(entry["amount"])),
-                    }
-                    for entry in entries
-                ],
+                "total_paid": format_money_with_commas(total_paid),
+                "total_unpaid": format_money_with_commas(total_unpaid),
+                "entries": entries,
             }
         )
 
