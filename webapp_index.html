@@ -182,6 +182,18 @@
       grid-template-columns: 1fr;
       gap: 8px;
     }
+    .pagination-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pagination-row .secondary-btn {
+      margin-top: 0;
+      width: auto;
+      flex: 1;
+    }
     .suggestions {
       margin-top: 6px;
       border: 1px solid var(--border-color);
@@ -372,6 +384,19 @@ async function loadProducts() {
 
 function formatMoney(value) {
   return Number(value || 0).toLocaleString('ru-RU');
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString('ru-RU', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function escapeHtml(value) {
@@ -575,6 +600,9 @@ let ordersCache = [];
 let ordersSearchQuery = '';
 let ordersStatusFilter = 'all';
 let ordersPaymentFilter = 'all';
+let ordersPage = 1;
+let ordersPageSize = 10;
+let ordersPagination = null;
 
 function renderOrdersList() {
   const filtered = ordersCache.filter((order) => {
@@ -604,6 +632,7 @@ function renderOrdersList() {
         ${o.client_name ? `<div>👤 Mijoz: <b>${o.client_name}</b></div>` : ''}
         ${o.client_phone ? `<div>📞 Telefon: <b>${o.client_phone}</b></div>` : ''}
         <div>📦 Mahsulot: <b>${o.product_name}</b></div>
+        <div>📅 Sana: <b>${formatDateTime(o.created_at)}</b></div>
         <div>⚖️ Miqdor: <b>${o.quantity}</b></div>
         <div>📍 Manzil: <b>${o.address}</b></div>
         <div>💵 Jami summa: <b>${o.total_amount}</b></div>
@@ -623,7 +652,17 @@ function renderOrdersList() {
 
   const listNode = document.getElementById('ordersList');
   if (listNode) {
-    listNode.innerHTML = cards || '<div class="panel">Buyurtmalar yoʻq.</div>';
+    const pagination = ordersPagination || {};
+    const pagerHtml = (pagination.total_pages || 1) > 1 ? `
+      <div class="panel">
+        <div>Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})</div>
+        <div class="pagination-row">
+          <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeOrdersPage(-1)">⬅️ Oldingi</button>
+          <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeOrdersPage(1)">Keyingi ➡️</button>
+        </div>
+      </div>
+    ` : '';
+    listNode.innerHTML = (cards || '<div class="panel">Buyurtmalar yoʻq.</div>') + pagerHtml;
   }
 }
 
@@ -693,6 +732,11 @@ async function managePayments(orderId) {
   }
 }
 
+function changeOrdersPage(delta) {
+  ordersPage = Math.max(1, ordersPage + Number(delta || 0));
+  loadOrders().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
 async function adminUpdateOrderStatus(orderId, action) {
   const title = action === 'close' ? 'qabul qilishni' : 'bekor qilishni';
   const confirmed = await new Promise((resolve) => {
@@ -718,15 +762,21 @@ async function adminUpdateOrderStatus(orderId, action) {
 }
 
 async function loadOrders() {
-  const data = await api(`/webapp/api/orders?tg_id=${userId}`);
+  const data = await api(`/webapp/api/orders?tg_id=${userId}&page=${ordersPage}&page_size=${ordersPageSize}`);
   ordersCache = data.orders || [];
-  ordersSearchQuery = '';
-  ordersStatusFilter = 'all';
-  ordersPaymentFilter = 'all';
+  ordersPagination = data.pagination || null;
 
   const searchPlaceholder = role === 'admin'
     ? 'Qidirish: mijoz ismi yoki telefon...'
     : 'Qidirish: mahsulot, manzil...';
+
+  const shouldResetFilters = !document.getElementById('ordersList');
+  if (shouldResetFilters) {
+    ordersSearchQuery = '';
+    ordersStatusFilter = 'all';
+    ordersPaymentFilter = 'all';
+    ordersPage = 1;
+  }
 
   showSection(`
     <div class="filters panel">
@@ -858,6 +908,7 @@ async function renderWarehouseReceiptsView() {
   const cards = (data.receipts || []).map(item => `
     <div class="panel">
       <b>Prihod #${item.id}</b><br>
+      Sana: <b>${formatDateTime(item.created_at)}</b><br>
       Mahsulot: <b>${item.product_name}</b><br>
       Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
       Jami summa: <b>${item.total_amount_label} so'm</b><br>
@@ -869,13 +920,15 @@ async function renderWarehouseReceiptsView() {
   `).join('') || "<div class='panel'>Prihodlar yo'q.</div>";
 
   const pagination = data.pagination || {};
-  const pagerHtml = `
+  const pagerHtml = (pagination.total_pages || 1) > 1 ? `
     <div class="panel">
-      Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})<br>
-      <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(-1)">⬅️ Oldingi</button>
-      <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(1)">Keyingi ➡️</button>
+      <div>Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})</div>
+      <div class="pagination-row">
+        <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(-1)">⬅️ Oldingi</button>
+        <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(1)">Keyingi ➡️</button>
+      </div>
     </div>
-  `;
+  ` : '';
 
   const root = document.getElementById('warehouseReceipts');
   if (root) root.innerHTML = cards + pagerHtml;
@@ -938,7 +991,7 @@ async function loadCashbox() {
   const ops = (data.operations || []).map(op => {
     const sign = op.operation_type === 'income' ? '+' : '-';
     const emoji = op.operation_type === 'income' ? '🟢' : '🔴';
-    return `<div class="panel">${emoji} ${sign}${op.amount_label} so'm<br><span class="muted">${op.note || op.reason || ''}</span></div>`;
+    return `<div class="panel">${emoji} ${sign}${op.amount_label} so'm<br><span class="muted">${op.note || op.reason || ''}</span><br><span class="muted">📅 ${formatDateTime(op.created_at)}</span></div>`;
   }).join('') || "<div class='panel'>Operatsiyalar yo'q.</div>";
   showSection(`
     <div class="panel">
@@ -1015,13 +1068,19 @@ function renderReportsResult(data) {
 
   const filteredTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
   const filteredAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
+  const filteredPaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.paid_amount), 0);
+  const filteredUnpaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.unpaid_amount), 0);
 
   const items = filteredEntries.map((entry, idx) => `
     <div class="panel">
       <b>${idx + 1}. ${entry.client}</b><br>
+      Buyurtma: #${entry.order_id}<br>
       Mahsulot: ${entry.product}<br>
+      Sana: ${formatDateTime(entry.created_at)}<br>
       Miqdor: ${entry.tons} t<br>
-      Jami summa: ${entry.amount} so'm
+      Jami summa: ${entry.amount} so'm<br>
+      To'langan: ${entry.paid_amount} so'm<br>
+      To'lanmagan: ${entry.unpaid_amount} so'm
     </div>
   `).join('');
 
@@ -1033,7 +1092,7 @@ function renderReportsResult(data) {
   const reportsNode = document.getElementById('reportsResult');
   if (reportsNode) {
     reportsNode.innerHTML = `
-      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm</div>
+      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm<br>Shundan to'langan: ${formatMoney(filteredPaid)} so'm<br>Shundan to'lanmagan: ${formatMoney(filteredUnpaid)} so'm</div>
       ${listHtml}
     `;
   }
