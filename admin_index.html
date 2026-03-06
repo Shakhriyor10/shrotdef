@@ -755,6 +755,17 @@ function formatDateTime(value) {
   });
 }
 
+function formatDateOnly(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString('ru-RU', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
 function truncateAddress(value, limit = 7) {
   const text = String(value || '');
   if (text.length <= limit) return text;
@@ -996,7 +1007,7 @@ let ordersSearchQuery = '';
 let ordersStatusFilter = 'all';
 let ordersPaymentFilter = 'all';
 let ordersPage = 1;
-let ordersPageSize = 10;
+let ordersPageSize = 50;
 let ordersPagination = null;
 
 function renderOrdersList() {
@@ -1050,11 +1061,13 @@ function renderOrdersList() {
         <td>${escapeHtml(o.client_phone || '—')}</td>
         <td>${escapeHtml(o.product_name || '')}</td>
         <td>${escapeHtml(o.quantity || '')}</td>
-        <td>${formatDateTime(o.created_at)}</td>
+        <td>${formatDateOnly(o.created_at)}</td>
         <td>
           <span class="addr-cell">
             <span>${escapeHtml(truncateAddress(o.address || '', 7))}</span>
-            <button class="eye-btn" title="To'liq manzil" data-address="${encodeURIComponent(String(o.address || ''))}" onclick="openAddressModalFromBtn(this)">👁</button>
+            ${String(o.address || '').length > 7
+              ? `<button class="eye-btn" title="To'liq manzil" data-address="${encodeURIComponent(String(o.address || ''))}" onclick="openAddressModalFromBtn(this)">👁</button>`
+              : ''}
           </span>
         </td>
         <td>${formatMoney(parseReportNumber(o.total_amount || 0))} so'm</td>
