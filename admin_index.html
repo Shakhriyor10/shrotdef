@@ -1,0 +1,1417 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shrot Savdo</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg-color: var(--tg-theme-bg-color, #f4f6f8);
+      --text-color: var(--tg-theme-text-color, #1f2937);
+      --hint-color: var(--tg-theme-hint-color, #6b7280);
+      --header-bg: var(--tg-theme-secondary-bg-color, #ffffff);
+      --card-bg: var(--tg-theme-secondary-bg-color, #ffffff);
+      --button-bg: var(--tg-theme-button-color, #0f766e);
+      --button-text: var(--tg-theme-button-text-color, #ffffff);
+      --border-color: var(--tg-theme-section-separator-color, #d1d5db);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      justify-content: center;
+      padding: 16px;
+      transition: background .2s ease, color .2s ease;
+    }
+
+    .app-shell {
+      width: min(100%, 980px);
+      background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, .10);
+      backdrop-filter: blur(4px);
+    }
+
+    .login-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      padding: 16px;
+    }
+
+    .login-card {
+      width: min(100%, 420px);
+    }
+
+    header {
+      background: var(--header-bg);
+      color: var(--text-color);
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: center;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-logo {
+      height: 44px;
+      width: auto;
+      max-width: 100%;
+      display: inline-block;
+      object-fit: contain;
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-color);
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .container {
+      padding: 14px;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    button { border: none; border-radius: 12px; cursor: pointer; }
+
+    .menu-btn {
+      background: var(--card-bg);
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+      color: var(--text-color);
+      font-weight: 700;
+      width: 100%;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 58px;
+      font-size: 16px;
+      padding: 14px;
+    }
+
+    .icon {
+      width: 24px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--button-bg);
+      flex-shrink: 0;
+    }
+
+    .icon svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0;
+      margin: 0 0 12px;
+      background: transparent;
+      color: var(--button-bg);
+      font-weight: 700;
+      border-radius: 0;
+      font-size: 15px;
+    }
+
+    .card { background: var(--card-bg); margin-top: 10px; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); overflow: hidden; }
+    .card img { width: 100%; height: 180px; object-fit: cover; background: #e5e7eb; }
+    .card-body { padding: 10px; }
+    .muted { color: var(--hint-color); font-size: 13px; }
+    .buy-btn { background: var(--button-bg); color: var(--button-text); margin-top: 8px; width: 100%; padding: 12px; font-weight: 700; }
+    .panel { background: var(--card-bg); padding: 10px; border-radius: 12px; margin-top: 10px; }
+    input, textarea, select {
+      width: 100%;
+      padding: 10px;
+      margin-top: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-color);
+      color: var(--text-color);
+      box-sizing: border-box;
+    }
+    .hidden { display: none; }
+    .summary {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      line-height: 1.5;
+    }
+    .secondary-btn {
+      background: transparent;
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      margin-top: 8px;
+      width: 100%;
+      padding: 12px;
+      font-weight: 700;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .filter-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .pagination-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pagination-row .secondary-btn {
+      margin-top: 0;
+      width: auto;
+      flex: 1;
+    }
+    .suggestions {
+      margin-top: 6px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--card-bg);
+      overflow: hidden;
+    }
+    .suggestion-item {
+      width: 100%;
+      border: none;
+      border-bottom: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-color);
+      text-align: left;
+      padding: 10px;
+      font-size: 14px;
+      border-radius: 0;
+    }
+    .suggestion-item:last-child {
+      border-bottom: none;
+    }
+
+    .contact-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .contact-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      line-height: 1.45;
+    }
+
+    .contact-item .icon {
+      margin-top: 1px;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        padding: 0;
+      }
+
+      .app-shell {
+        width: 100%;
+        min-height: 100vh;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+      }
+
+      .container {
+        padding: 12px;
+        grid-template-columns: 1fr !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-card panel">
+      <h3>Admin kirish</h3>
+      <input id="loginId" type="number" placeholder="Telegram admin ID" />
+      <input id="loginPassword" type="password" placeholder="Parol" />
+      <button class="buy-btn" onclick="loginAdmin()">Kirish</button>
+      <div id="loginError" class="muted" style="margin-top:8px;color:#b91c1c;"></div>
+    </div>
+  </div>
+  <div class="app-shell">
+    <header><div class="brand"><img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span></div></header>
+    <div class="container" style="display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;max-width:100%;">
+      <div id="menu" class="grid"></div>
+      <div id="content"></div>
+    </div>
+  </div>
+
+<script>
+const tg = {
+  themeParams: {},
+  onEvent: () => {},
+  showAlert: (text) => window.alert(text),
+  showConfirm: (text, cb) => cb(window.confirm(text))
+};
+
+const ICONS = {
+  products: '<svg viewBox="0 0 24 24"><path d="M3 7h18"></path><path d="M6 7l1 12h10l1-12"></path><path d="M9 7V5a3 3 0 0 1 6 0v2"></path></svg>',
+  contact: '<svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7l.5 3a2 2 0 0 1-.6 1.8l-1.2 1.2a16 16 0 0 0 4.4 4.4l1.2-1.2a2 2 0 0 1 1.8-.6l3 .5a2 2 0 0 1 1.7 2z"></path></svg>',
+  stats: '<svg viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M10 19V9"></path><path d="M16 19V12"></path><path d="M22 19V3"></path></svg>',
+  orders: '<svg viewBox="0 0 24 24"><path d="M9 3h6"></path><path d="M8 7h8"></path><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>',
+  create: '<svg viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>',
+  reports: '<svg viewBox="0 0 24 24"><path d="M4 19h16"></path><path d="M7 16l3-3 3 2 4-5"></path><path d="M7 8h.01"></path></svg>',
+  myOrders: '<svg viewBox="0 0 24 24"><path d="M3 7h18"></path><path d="M5 7l1 12h12l1-12"></path><path d="M9 11h6"></path><path d="M9 15h4"></path></svg>',
+  warehouse: '<svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6"></path><path d="M4 10h16v10H4z"></path><path d="M9 20v-6h6v6"></path></svg>',
+  cash: '<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle></svg>'
+  ,phone: '<svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7l.5 3a2 2 0 0 1-.6 1.8l-1.2 1.2a16 16 0 0 0 4.4 4.4l1.2-1.2a2 2 0 0 1 1.8-.6l3 .5a2 2 0 0 1 1.7 2z"></path></svg>'
+  ,location: '<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.2-6-11a6 6 0 1 1 12 0c0 5.8-6 11-6 11z"></path><circle cx="12" cy="10" r="2"></circle></svg>'
+};
+
+let userId = '';
+let role = 'admin';
+let adminToken = localStorage.getItem('admin_token') || '';
+let reportsEntriesCache = [];
+let reportsSearchQuery = '';
+let selectedClient = null;
+let clientSearchSeq = 0;
+
+function applyTheme() {
+  const root = document.documentElement;
+  const theme = tg.themeParams || {};
+  root.style.setProperty('--tg-theme-bg-color', theme.bg_color || '#f4f6f8');
+  root.style.setProperty('--tg-theme-secondary-bg-color', theme.secondary_bg_color || '#ffffff');
+  root.style.setProperty('--tg-theme-text-color', theme.text_color || '#1f2937');
+  root.style.setProperty('--tg-theme-hint-color', theme.hint_color || '#6b7280');
+  root.style.setProperty('--tg-theme-button-color', theme.button_color || '#0f766e');
+  root.style.setProperty('--tg-theme-button-text-color', theme.button_text_color || '#ffffff');
+}
+
+applyTheme();
+
+async function api(path, options={}) {
+  const headers = {'Content-Type':'application/json', ...(options.headers || {})};
+  if (adminToken) headers['X-Admin-Token'] = adminToken;
+  const res = await fetch(path, {...options, headers});
+  const rawText = await res.text();
+  let payload = null;
+  try {
+    payload = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    payload = null;
+  }
+  if (!res.ok) {
+    const errorMessage = payload?.error || rawText || `HTTP ${res.status}`;
+    throw new Error(errorMessage);
+  }
+  return payload || {};
+}
+
+function showFatalError(message) {
+  document.getElementById('menu').classList.add('hidden');
+  setContent(`
+    <div class="panel">
+      <b>⚠️ Web ilovani yuklab bo'lmadi</b><br><br>
+      <div class="muted">${escapeHtml(message || 'Noma’lum xatolik')}</div>
+      <button class="buy-btn" onclick="init()">Qayta urinish</button>
+    </div>
+  `);
+}
+
+function setContent(html) {
+  document.getElementById('content').innerHTML = html;
+}
+
+function showMainMenu() {
+  setContent('');
+}
+
+function showSection(html) {
+  setContent(html);
+}
+
+async function loginAdmin() {
+  const login = (document.getElementById('loginId').value || '').trim();
+  const password = document.getElementById('loginPassword').value || '';
+  const errorNode = document.getElementById('loginError');
+  errorNode.textContent = '';
+  try {
+    const res = await api('/admin/api/login', {method:'POST', body:JSON.stringify({login, password})});
+    adminToken = res.token;
+    localStorage.setItem('admin_token', adminToken);
+    userId = String(login);
+    document.getElementById('loginOverlay').style.display = 'none';
+    await initAfterLogin();
+  } catch (e) {
+    errorNode.textContent = e.message;
+  }
+}
+
+async function restoreSession() {
+  if (!adminToken) return false;
+  try {
+    const me = await api('/admin/api/me');
+    userId = String(me.tg_id || '');
+    if (!userId) return false;
+    document.getElementById('loginOverlay').style.display = 'none';
+    return true;
+  } catch {
+    localStorage.removeItem('admin_token');
+    adminToken = '';
+    return false;
+  }
+}
+
+function renderMenu(items) {
+  const menu = document.getElementById('menu');
+  menu.innerHTML = items.map(i => `
+    <button class="menu-btn" onclick="${i.action}">
+      <span class="icon">${i.icon}</span>
+      <span>${i.label}</span>
+    </button>
+  `).join('');
+}
+
+async function saveProductChanges(productId) {
+  const name = (document.getElementById(`editName_${productId}`)?.value || '').trim();
+  const price = Number(document.getElementById(`editPrice_${productId}`)?.value || 0);
+  const stock = Number(document.getElementById(`editStock_${productId}`)?.value || 0);
+  const fileInput = document.getElementById(`editPhoto_${productId}`);
+
+  let photoDataUrl = '';
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    photoDataUrl = await fileToDataUrl(fileInput.files[0]);
+  }
+
+  try {
+    await api(`/webapp/api/products/${productId}/update`, {
+      method:'POST',
+      body: JSON.stringify({
+        tg_id: userId,
+        name,
+        price_per_kg: price,
+        stock_tons: stock,
+        photo_data_url: photoDataUrl || undefined,
+      })
+    });
+    tg.showAlert('✅ Mahsulot yangilandi');
+    await loadManageProducts();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+function toggleProductEdit(productId) {
+  document.getElementById(`editBlock_${productId}`)?.classList.toggle('hidden');
+}
+
+async function loadManageProducts() {
+  const data = await api(`/webapp/api/products?tg_id=${userId}`);
+  const cards = (data.products || []).map((p) => `
+    <div class="card">
+      ${p.photo_url ? `<img src="${p.photo_url}" alt="${p.name}">` : ''}
+      <div class="card-body">
+        <div><b>${p.name}</b></div>
+        <div class="muted">Narx: ${formatMoney(p.price_per_kg)} so'm/kg</div>
+        <div class="muted">Sklad: ${Number(p.stock_tons || 0).toLocaleString('ru-RU')} tonna</div>
+        <button class="buy-btn" onclick="toggleProductEdit(${p.id})">O'zgartirish</button>
+        <div id="editBlock_${p.id}" class="hidden">
+          <input id="editName_${p.id}" value="${escapeHtml(p.name || '')}" placeholder="Nomi" />
+          <input id="editPrice_${p.id}" type="number" step="0.01" value="${Number(p.price_per_kg || 0)}" placeholder="Narx (1kg)" />
+          <input id="editStock_${p.id}" type="number" step="0.001" value="${Number(p.stock_tons || 0)}" placeholder="Sklad (tonna)" />
+          <input id="editPhoto_${p.id}" type="file" accept="image/*" />
+          <button class="buy-btn" onclick="saveProductChanges(${p.id})">Saqlash</button>
+        </div>
+      </div>
+    </div>
+  `).join('') || "<div class='panel'>Mahsulotlar yo'q.</div>";
+  showSection(cards);
+}
+
+async function loadProducts() {
+  const data = await api(`/webapp/api/products?tg_id=${userId}`);
+  if (!data.products.length) return showSection('<div class="panel">Mahsulotlar yoʻq.</div>');
+  showSection(data.products.map(p => `
+    <div class="card">
+      <img src="${p.photo_url || ''}" onerror="this.style.display='none'" />
+      <div class="card-body">
+        <div><b>${p.name}</b></div>
+        <div class="muted">${p.description || 'Tavsif yoʻq'}</div>
+        <div><b>${p.price_per_kg} soʻm / kg</b></div>
+        <div class="muted">Sklad: ${Number(p.stock_tons || 0).toLocaleString('ru-RU')} tonna</div>
+        ${p.in_stock
+          ? `<button class="buy-btn" onclick="openOrderForm(${p.id}, '${(p.name||'').replace(/'/g,'')}', ${p.price_per_kg})">Sotib olish</button>`
+          : `<button class="secondary-btn" disabled>Нет в наличие</button>`}
+      </div>
+    </div>
+  `).join(''));
+}
+
+function formatMoney(value) {
+  return Number(value || 0).toLocaleString('ru-RU');
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString('ru-RU', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+async function fileToDataUrl(file) {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error("Rasmni o'qib bo'lmadi"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderStatsList(items, key) {
+  if (!Array.isArray(items) || !items.length) {
+    return "<div class='panel'>Hozircha ma'lumot yo'q.</div>";
+  }
+  return `
+    <div class="panel">
+      ${items.map((item, idx) => {
+        const metric = Number(item?.[key] || 0);
+        return `${idx + 1}. ${escapeHtml(item.name)} (${escapeHtml(item.phone)}) — ${metric} ta`;
+      }).join('<br>')}
+    </div>
+  `;
+}
+
+function calculateTotal(pricePerKg, qtyTons) {
+  const tons = Number(String(qtyTons).replace(',', '.'));
+  if (!Number.isFinite(tons) || tons <= 0) return null;
+  return tons * 1000 * Number(pricePerKg || 0);
+}
+
+function updateOrderTotal(productPricePerKg) {
+  const qtyValue = document.getElementById('qty')?.value || '';
+  const totalNode = document.getElementById('totalAmount');
+  const total = calculateTotal(productPricePerKg, qtyValue);
+  if (!totalNode) return;
+  totalNode.textContent = total === null
+    ? 'Jami summa: —'
+    : `Jami summa: ${formatMoney(total)} soʻm`;
+}
+
+function statusMeta(status) {
+  if (status === 'open') return {label: '🟠 Kutilmoqda', color: '#f59e0b'};
+  if (status === 'closed') return {label: '🟢 Qabul qilingan', color: '#16a34a'};
+  if (status === 'canceled') return {label: '🔴 Bekor qilingan', color: '#dc2626'};
+  return {label: status || 'Nomaʼlum', color: 'var(--hint-color)'};
+}
+
+function openOrderForm(productId, productName, productPricePerKg) {
+  selectedClient = null;
+  showSection(`
+    <div class="panel">
+      <h3>Buyurtma: ${productName}</h3>
+      <div id="formFields">
+        ${role === 'admin' ? `
+          <input id="clientName" placeholder="Mijoz ismi" oninput="onClientFieldInput()" />
+          <input id="clientPhone" placeholder="Mijoz raqami" oninput="onClientFieldInput()" />
+          <div id="clientSuggestions" class="suggestions hidden"></div>
+        ` : ''}
+        <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="updateOrderTotal(${productPricePerKg})" />
+        <textarea id="addr" placeholder="Manzil"></textarea>
+        <div id="totalAmount" class="summary">Jami summa: —</div>
+      </div>
+      <button id="previewBtn" class="buy-btn" onclick="previewOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Yuborish</button>
+      <div id="confirmBlock" class="hidden"></div>
+    </div>
+  `);
+}
+
+function renderClientSuggestions(clients) {
+  const box = document.getElementById('clientSuggestions');
+  if (!box) return;
+  if (!clients.length) {
+    box.innerHTML = '';
+    box.classList.add('hidden');
+    return;
+  }
+  box.innerHTML = clients.map(client => `
+    <button class="suggestion-item" onclick="selectClient(${client.id}, '${(client.name || '').replace(/'/g, "\\'")}', '${(client.phone || '').replace(/'/g, "\\'")}')">
+      <div><b>${client.name || 'Nomaʼlum'}</b></div>
+      <div class="muted">${client.phone || 'Raqam yoʻq'}</div>
+    </button>
+  `).join('');
+  box.classList.remove('hidden');
+}
+
+function selectClient(id, name, phone) {
+  selectedClient = {id, name, phone};
+  const nameNode = document.getElementById('clientName');
+  const phoneNode = document.getElementById('clientPhone');
+  if (nameNode) nameNode.value = name || '';
+  if (phoneNode) phoneNode.value = phone || '';
+  renderClientSuggestions([]);
+}
+
+async function onClientFieldInput() {
+  selectedClient = null;
+  const name = (document.getElementById('clientName')?.value || '').trim();
+  const phone = (document.getElementById('clientPhone')?.value || '').trim();
+  const query = (name || phone).trim();
+  if (query.length < 2) {
+    renderClientSuggestions([]);
+    return;
+  }
+  const seq = ++clientSearchSeq;
+  try {
+    const data = await api(`/webapp/api/clients/search?tg_id=${userId}&query=${encodeURIComponent(query)}`);
+    if (seq !== clientSearchSeq) return;
+    renderClientSuggestions(data.clients || []);
+  } catch {
+    renderClientSuggestions([]);
+  }
+}
+
+function previewOrder(productId, productName, productPricePerKg) {
+  const quantity = (document.getElementById('qty')?.value || '').trim();
+  const address = (document.getElementById('addr')?.value || '').trim();
+  const clientName = (document.getElementById('clientName')?.value || '').trim();
+  const clientPhone = (document.getElementById('clientPhone')?.value || '').trim();
+  const total = calculateTotal(productPricePerKg, quantity);
+  if (!quantity) return tg.showAlert('Iltimos, tonna miqdorini kiriting.');
+  if (!address) return tg.showAlert('Iltimos, manzilni kiriting.');
+  if (total === null) return tg.showAlert('Miqdor notoʻgʻri kiritildi.');
+  if (role === 'admin' && (!clientName || !clientPhone || !selectedClient)) {
+    return tg.showAlert('Mijozni bazadan tanlang (ism yoki raqam orqali).');
+  }
+
+  const formFields = document.getElementById('formFields');
+  const previewBtn = document.getElementById('previewBtn');
+  const confirmBlock = document.getElementById('confirmBlock');
+  if (formFields) formFields.classList.add('hidden');
+  if (previewBtn) previewBtn.classList.add('hidden');
+  confirmBlock.classList.remove('hidden');
+  confirmBlock.innerHTML = `
+    <div class="summary">
+      <b>Tasdiqlashdan oldin tekshiring:</b><br>
+      Mahsulot: <b>${productName}</b><br>
+      ${role === 'admin' ? `Mijoz: <b>${clientName}</b><br>Telefon: <b>${clientPhone}</b><br>` : ''}
+      Miqdor: <b>${quantity} tonna</b><br>
+      Manzil: <b>${address}</b><br>
+      Umumiy summa: <b>${formatMoney(total)} soʻm</b>
+    </div>
+    <button class="buy-btn" onclick="submitOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Tasdiqlash va buyurtma yaratish</button>
+    <button class="secondary-btn" onclick="hidePreview()">Tahrirlash</button>
+  `;
+}
+
+function hidePreview() {
+  const formFields = document.getElementById('formFields');
+  const previewBtn = document.getElementById('previewBtn');
+  const confirmBlock = document.getElementById('confirmBlock');
+  if (formFields) formFields.classList.remove('hidden');
+  if (previewBtn) previewBtn.classList.remove('hidden');
+  confirmBlock.classList.add('hidden');
+  confirmBlock.innerHTML = '';
+}
+
+async function submitOrder(productId, productName, productPricePerKg) {
+  const quantity = (document.getElementById('qty')?.value || '').trim();
+  const address = (document.getElementById('addr')?.value || '').trim();
+  const clientInfo = role === 'admin' ? selectedClient : null;
+  try {
+    const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({
+      tg_id:userId,
+      product_id:productId,
+      quantity,
+      address,
+      selected_user_id: clientInfo?.id || null
+    })});
+    const total = calculateTotal(productPricePerKg, quantity);
+    tg.showAlert(`Buyurtma qabul qilindi.\nMahsulot: ${productName}${clientInfo ? `\nMijoz: ${clientInfo.name} (${clientInfo.phone})` : ''}\nMiqdor: ${quantity} tonna\nManzil: ${address}\nUmumiy summa: ${formatMoney(total)} soʻm\nID: ${data.order_id}`);
+    openOrderForm(productId, productName, productPricePerKg);
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function cancelOrder(orderId) {
+  const confirmed = await new Promise((resolve) => {
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm('Siz rostdan ham buyurtmani bekor qilmoqchimisiz?', resolve);
+      return;
+    }
+    resolve(window.confirm('Siz rostdan ham buyurtmani bekor qilmoqchimisiz?'));
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(`/webapp/api/orders/${orderId}/cancel`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert('Buyurtma bekor qilindi.');
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+let ordersCache = [];
+let ordersSearchQuery = '';
+let ordersStatusFilter = 'all';
+let ordersPaymentFilter = 'all';
+let ordersPage = 1;
+let ordersPageSize = 10;
+let ordersPagination = null;
+
+function renderOrdersList() {
+  const filtered = ordersCache.filter((order) => {
+    const statusOk = ordersStatusFilter === 'all' || order.status === ordersStatusFilter;
+    if (!statusOk) return false;
+    if (ordersPaymentFilter === 'unpaid' && Number(order.remaining_amount_raw || 0) <= 0) return false;
+    if (ordersPaymentFilter === 'partial' && Number(order.paid_amount_raw || 0) <= 0) return false;
+    if (ordersPaymentFilter === 'partial' && Number(order.remaining_amount_raw || 0) <= 0) return false;
+    if (!ordersSearchQuery) return true;
+    const query = ordersSearchQuery.toLowerCase();
+    const haystack = [
+      order.product_name,
+      order.quantity,
+      order.address,
+      order.client_name || '',
+      order.client_phone || ''
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
+  const cards = filtered.map(o => {
+    const meta = statusMeta(o.status);
+    const statusLabel = o.status_label || meta.label;
+    return `
+      <div class="panel">
+        <div><b>Buyurtma #${o.id}</b></div>
+        ${o.client_name ? `<div>👤 Mijoz: <b>${o.client_name}</b></div>` : ''}
+        ${o.client_phone ? `<div>📞 Telefon: <b>${o.client_phone}</b></div>` : ''}
+        <div>📦 Mahsulot: <b>${o.product_name}</b></div>
+        <div>📅 Sana: <b>${formatDateTime(o.created_at)}</b></div>
+        <div>⚖️ Miqdor: <b>${o.quantity}</b></div>
+        <div>📍 Manzil: <b>${o.address}</b></div>
+        <div>💵 Jami summa: <b>${o.total_amount}</b></div>
+        <div>✅ To'langan: <b>${o.paid_amount || '0'}</b> so'm</div>
+        <div>🧾 Qoldiq: <b>${o.remaining_amount || '0'}</b> so'm</div>
+        <div>🔢 To'lovlar soni: <b>${o.payments_count || 0}</b></div>
+        <div style="margin-top:6px;color:${meta.color};font-weight:700;">Holat: ${statusLabel}</div>
+        ${o.can_admin_manage ? `
+          <button class="buy-btn" onclick="adminUpdateOrderStatus(${o.id}, 'close')">Qabul qilish</button>
+          <button class="secondary-btn" onclick="adminUpdateOrderStatus(${o.id}, 'cancel')">Bekor qilish</button>
+        ` : ''}
+        ${(role === 'admin' && o.status === 'closed') ? `<button class="buy-btn" onclick="managePayments(${o.id})">To'lov qo'shish / o'chirish</button>` : ''}
+        ${o.can_cancel ? `<button class="secondary-btn" onclick="cancelOrder(${o.id})">Buyurtmani bekor qilish</button>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  const listNode = document.getElementById('ordersList');
+  if (listNode) {
+    const pagination = ordersPagination || {};
+    const pagerHtml = (pagination.total_pages || 1) > 1 ? `
+      <div class="panel">
+        <div>Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})</div>
+        <div class="pagination-row">
+          <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeOrdersPage(-1)">⬅️ Oldingi</button>
+          <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeOrdersPage(1)">Keyingi ➡️</button>
+        </div>
+      </div>
+    ` : '';
+    listNode.innerHTML = (cards || '<div class="panel">Buyurtmalar yoʻq.</div>') + pagerHtml;
+  }
+}
+
+function onOrdersStatusChange(value) {
+  ordersStatusFilter = value || 'all';
+  renderOrdersList();
+}
+
+function onOrdersPaymentChange(value) {
+  ordersPaymentFilter = value || 'all';
+  renderOrdersList();
+}
+
+function onOrdersSearchInput(value) {
+  ordersSearchQuery = String(value || '').trim();
+  renderOrdersList();
+}
+
+async function managePayments(orderId) {
+  const amountRaw = window.prompt("To'lov summasini kiriting (so'm). Bekor uchun bo'sh qoldiring:");
+  if (amountRaw !== null && String(amountRaw).trim() !== '') {
+    const amount = Number(String(amountRaw).replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      tg.showAlert("To'g'ri summa kiriting.");
+      return;
+    }
+    try {
+      await api(`/webapp/api/orders/${orderId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify({tg_id: userId, amount})
+      });
+      tg.showAlert("✅ To'lov qo'shildi.");
+      await loadOrders();
+      return;
+    } catch (e) {
+      tg.showAlert('Xato: ' + e.message);
+      return;
+    }
+  }
+
+  try {
+    const data = await api(`/webapp/api/orders/${orderId}/payments?tg_id=${userId}`);
+    const payments = data.payments || [];
+    if (!payments.length) {
+      tg.showAlert("Bu buyurtma uchun to'lovlar yo'q.");
+      return;
+    }
+    const msg = payments
+      .slice(0, 10)
+      .map((p, i) => `${i + 1}) #${p.id} — ${p.amount_label} so'm`)
+      .join('\n');
+    const chosen = window.prompt(`O'chirish uchun to'lov ID kiriting:\n${msg}`);
+    if (!chosen) return;
+    const paymentId = Number(chosen);
+    if (!paymentId) {
+      tg.showAlert("ID noto'g'ri.");
+      return;
+    }
+    await api(`/webapp/api/orders/${orderId}/payments/${paymentId}/delete`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert("✅ To'lov o'chirildi.");
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+function changeOrdersPage(delta) {
+  ordersPage = Math.max(1, ordersPage + Number(delta || 0));
+  loadOrders().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+async function adminUpdateOrderStatus(orderId, action) {
+  const title = action === 'close' ? 'qabul qilishni' : 'bekor qilishni';
+  const confirmed = await new Promise((resolve) => {
+    const text = `Siz rostdan ham buyurtmani ${title} tasdiqlaysizmi?`;
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm(text, resolve);
+      return;
+    }
+    resolve(window.confirm(text));
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(`/webapp/api/orders/${orderId}/admin-status`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId, action})
+    });
+    tg.showAlert(action === 'close' ? 'Buyurtma qabul qilindi.' : 'Buyurtma bekor qilindi.');
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function loadOrders() {
+  const data = await api(`/webapp/api/orders?tg_id=${userId}&page=${ordersPage}&page_size=${ordersPageSize}`);
+  ordersCache = data.orders || [];
+  ordersPagination = data.pagination || null;
+
+  const searchPlaceholder = role === 'admin'
+    ? 'Qidirish: mijoz ismi yoki telefon...'
+    : 'Qidirish: mahsulot, manzil...';
+
+  const shouldResetFilters = !document.getElementById('ordersList');
+  if (shouldResetFilters) {
+    ordersSearchQuery = '';
+    ordersStatusFilter = 'all';
+    ordersPaymentFilter = 'all';
+    ordersPage = 1;
+  }
+
+  showSection(`
+    <div class="filters panel">
+      <input id="ordersSearch" placeholder="${searchPlaceholder}" oninput="onOrdersSearchInput(this.value)" />
+      <div class="filter-row">
+        <select id="statusFilter" onchange="onOrdersStatusChange(this.value)">
+          <option value="all">Barchasi</option>
+          <option value="open">🟠 Ochiq</option>
+          <option value="closed">🟢 Qabul qilingan</option>
+          <option value="canceled">🔴 Bekor qilingan</option>
+        </select>
+        <select id="paymentFilter" onchange="onOrdersPaymentChange(this.value)">
+          <option value="all">To'lov holati: barchasi</option>
+          <option value="unpaid">Faqat to'lanmagan</option>
+          <option value="partial">Qisman to'langan</option>
+        </select>
+      </div>
+    </div>
+    <div id="ordersList"></div>
+  `);
+
+  renderOrdersList();
+}
+
+async function renderWarehouseProductsView() {
+  const data = await api(`/webapp/api/warehouse/products?tg_id=${userId}`);
+  const cards = (data.items || []).map(item => `
+    <div class="panel">
+      <b>${item.name}</b><br>
+      Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
+      Narx: ${formatMoney(item.price_per_kg)} so'm / kg
+    </div>
+  `).join('') || "<div class='panel'>Sklad bo'sh.</div>";
+  const root = document.getElementById('warehouseResult');
+  if (root) root.innerHTML = cards;
+}
+
+let warehouseReceiptsPage = 1;
+let warehouseReceiptsPageSize = 10;
+let warehouseStartDate = '';
+let warehouseEndDate = '';
+let warehousePaymentFilter = 'all';
+let warehouseRemainingFilter = 'all';
+
+async function createWarehouseReceipt() {
+  const productId = Number(document.getElementById('receiptProduct')?.value || 0);
+  const quantityTons = document.getElementById('receiptQty')?.value || '';
+  const totalAmount = Number((document.getElementById('receiptTotal')?.value || '0').replace(',', '.'));
+  if (!productId || !quantityTons) {
+    tg.showAlert('Mahsulot va miqdorni kiriting.');
+    return;
+  }
+  try {
+    await api('/webapp/api/warehouse/receipts', {
+      method: 'POST',
+      body: JSON.stringify({tg_id: userId, product_id: productId, quantity_tons: quantityTons, total_amount: totalAmount})
+    });
+    tg.showAlert("✅ Prihod qo'shildi.");
+    await loadWarehouse();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+
+async function manageWarehouseReceiptPayments(receiptId) {
+  const amountRaw = window.prompt("Prihod uchun to'lov summasini kiriting (so'm). O'chirish uchun bo'sh qoldiring:");
+  if (amountRaw !== null && String(amountRaw).trim() !== '') {
+    const amount = Number(String(amountRaw).replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      tg.showAlert("To'g'ri summa kiriting.");
+      return;
+    }
+    try {
+      await api(`/webapp/api/warehouse/receipts/${receiptId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify({tg_id: userId, amount})
+      });
+      tg.showAlert("✅ Prihod to'lovi qo'shildi.");
+      await loadWarehouse();
+      return;
+    } catch (e) {
+      tg.showAlert('Xato: ' + e.message);
+      return;
+    }
+  }
+
+  try {
+    const data = await api(`/webapp/api/warehouse/receipts/${receiptId}/payments?tg_id=${userId}`);
+    const payments = data.payments || [];
+    if (!payments.length) {
+      tg.showAlert("Bu prihod uchun to'lovlar yo'q.");
+      return;
+    }
+    const msg = payments
+      .slice(0, 10)
+      .map((p, i) => `${i + 1}) #${p.id} — ${p.amount_label} so'm`)
+      .join('\n');
+    const chosen = window.prompt(`O'chirish uchun to'lov ID kiriting:\n${msg}`);
+    if (!chosen) return;
+    const paymentId = Number(chosen);
+    if (!paymentId) {
+      tg.showAlert("ID noto'g'ri.");
+      return;
+    }
+    await api(`/webapp/api/warehouse/receipts/${receiptId}/payments/${paymentId}/delete`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert("✅ Prihod to'lovi o'chirildi.");
+    await loadWarehouse();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function renderWarehouseReceiptsView() {
+  const params = new URLSearchParams({
+    tg_id: String(userId),
+    page: String(warehouseReceiptsPage),
+    page_size: String(warehouseReceiptsPageSize),
+    payment_filter: warehousePaymentFilter,
+    remaining_filter: warehouseRemainingFilter,
+  });
+  if (warehouseStartDate) params.set('start_date', warehouseStartDate);
+  if (warehouseEndDate) params.set('end_date', warehouseEndDate);
+
+  const data = await api(`/webapp/api/warehouse/receipts?${params.toString()}`);
+  const cards = (data.receipts || []).map(item => `
+    <div class="panel">
+      <b>Prihod #${item.id}</b><br>
+      Sana: <b>${formatDateTime(item.created_at)}</b><br>
+      Mahsulot: <b>${item.product_name}</b><br>
+      Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
+      Jami summa: <b>${item.total_amount_label} so'm</b><br>
+      To'langan: <b>${item.paid_amount_label} so'm</b><br>
+      Qoldiq: <b>${item.remaining_amount_label} so'm</b><br>
+      To'lovlar soni: <b>${item.payments_count || 0}</b><br>
+      <button class="buy-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish / o'chirish</button>
+    </div>
+  `).join('') || "<div class='panel'>Prihodlar yo'q.</div>";
+
+  const pagination = data.pagination || {};
+  const pagerHtml = (pagination.total_pages || 1) > 1 ? `
+    <div class="panel">
+      <div>Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})</div>
+      <div class="pagination-row">
+        <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(-1)">⬅️ Oldingi</button>
+        <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(1)">Keyingi ➡️</button>
+      </div>
+    </div>
+  ` : '';
+
+  const root = document.getElementById('warehouseReceipts');
+  if (root) root.innerHTML = cards + pagerHtml;
+}
+
+function applyWarehouseReceiptFilters() {
+  warehouseStartDate = document.getElementById('warehouseStartDate')?.value || '';
+  warehouseEndDate = document.getElementById('warehouseEndDate')?.value || '';
+  warehousePaymentFilter = document.getElementById('warehousePaymentFilter')?.value || 'all';
+  warehouseRemainingFilter = document.getElementById('warehouseRemainingFilter')?.value || 'all';
+  warehouseReceiptsPage = 1;
+  renderWarehouseReceiptsView().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+function changeWarehouseReceiptsPage(delta) {
+  warehouseReceiptsPage = Math.max(1, warehouseReceiptsPage + Number(delta || 0));
+  renderWarehouseReceiptsView().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+async function loadWarehouse() {
+  const productsData = await api(`/webapp/api/products?tg_id=${userId}`);
+  const options = (productsData.products || []).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  showSection(`
+    <div class="panel">
+      <button class="buy-btn" onclick="renderWarehouseProductsView()">Продукты склада</button>
+      <button class="secondary-btn" onclick="document.getElementById('receiptForm').classList.toggle('hidden')">Создать приход</button>
+      <div id="receiptForm" class="hidden">
+        <select id="receiptProduct">${options}</select>
+        <input id="receiptQty" placeholder="Miqdor (tonna)" />
+        <input id="receiptTotal" placeholder="Jami summa" />
+        <button class="buy-btn" onclick="createWarehouseReceipt()">Saqlash</button>
+      </div>
+    </div>
+    <div id="warehouseResult"></div>
+    <div class="panel">
+      <b>Prihodlar va to'lovlar</b><br>
+      <input id="warehouseStartDate" type="date" value="${warehouseStartDate}" />
+      <input id="warehouseEndDate" type="date" value="${warehouseEndDate}" />
+      <select id="warehousePaymentFilter">
+        <option value="all" ${warehousePaymentFilter === 'all' ? 'selected' : ''}>To'lov holati: barchasi</option>
+        <option value="paid" ${warehousePaymentFilter === 'paid' ? 'selected' : ''}>To'liq to'langan</option>
+        <option value="unpaid" ${warehousePaymentFilter === 'unpaid' ? 'selected' : ''}>To'lanmagan</option>
+        <option value="partial" ${warehousePaymentFilter === 'partial' ? 'selected' : ''}>Qisman to'langan</option>
+      </select>
+      <select id="warehouseRemainingFilter">
+        <option value="all" ${warehouseRemainingFilter === 'all' ? 'selected' : ''}>Qoldiq: barchasi</option>
+        <option value="with_remaining" ${warehouseRemainingFilter === 'with_remaining' ? 'selected' : ''}>Qoldig'i bor</option>
+        <option value="no_remaining" ${warehouseRemainingFilter === 'no_remaining' ? 'selected' : ''}>Qoldig'i yo'q</option>
+      </select>
+      <button class="buy-btn" onclick="applyWarehouseReceiptFilters()">Filterni qo'llash</button>
+    </div>
+    <div id="warehouseReceipts"></div>
+  `);
+  await renderWarehouseProductsView();
+  await renderWarehouseReceiptsView();
+}
+
+async function loadCashbox() {
+  const data = await api(`/webapp/api/cashbox?tg_id=${userId}`);
+  const ops = (data.operations || []).map(op => {
+    const sign = op.operation_type === 'income' ? '+' : '-';
+    const emoji = op.operation_type === 'income' ? '🟢' : '🔴';
+    return `<div class="panel">${emoji} ${sign}${op.amount_label} so'm<br><span class="muted">${op.note || op.reason || ''}</span><br><span class="muted">📅 ${formatDateTime(op.created_at)}</span></div>`;
+  }).join('') || "<div class='panel'>Operatsiyalar yo'q.</div>";
+  showSection(`
+    <div class="panel">
+      <b>Kassa:</b> ${formatMoney(data.amount)} so'm
+      <input id="cashboxAmount" type="number" step="0.01" value="${Number(data.amount || 0)}" />
+      <button class="buy-btn" onclick="saveCashbox()">Kassani saqlash</button>
+    </div>
+    <div class="panel"><b>So'nggi operatsiyalar</b></div>
+    ${ops}
+  `);
+}
+
+async function saveCashbox() {
+  const amount = Number(document.getElementById('cashboxAmount')?.value || 0);
+  try {
+    await api('/webapp/api/cashbox', {method:'POST', body:JSON.stringify({tg_id:userId, amount})});
+    tg.showAlert('✅ Kassa yangilandi');
+    await loadCashbox();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function loadStats() {
+  const data = await api(`/webapp/api/stats?tg_id=${userId}`);
+  showSection(`
+    <div class="panel">
+      Jami foydalanuvchilar: ${data.users}<br>
+      So'nggi 30 kunda faol: ${data.active_30_days}<br>
+      Jami buyurtmalar: ${data.orders}<br>
+      Ochiq: ${data.open_orders}<br>
+      Yopilgan: ${data.closed_orders}
+    </div>
+    <div class="panel"><b>🏆 Ko'p marta buyurtma bergan foydalanuvchilar:</b></div>
+    ${renderStatsList(data.top_purchasers, 'order_count')}
+    <div class="panel"><b>🚀 Botdan ko'p foydalanadigan foydalanuvchilar:</b></div>
+    ${renderStatsList(data.top_active_users, 'activity_count')}
+  `);
+}
+
+function getCurrentMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return {
+    startDate: `${year}-${month}-01`,
+    endDate: `${year}-${month}-${day}`
+  };
+}
+
+function parseReportNumber(value) {
+  const normalized = String(value ?? '')
+    .replace(/\s/g, '')
+    .replace(/,/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatReportTons(value) {
+  if (Math.abs(value - Math.round(value)) < 1e-9) {
+    return String(Math.round(value));
+  }
+  return value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function getFilteredReportEntries() {
+  const normalizedQuery = reportsSearchQuery.toLowerCase();
+  return reportsEntriesCache.filter((entry) => {
+    if (!normalizedQuery) return true;
+    const haystack = `${entry.client} ${entry.product}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
+}
+
+function exportReportsPdf() {
+  const filteredEntries = getFilteredReportEntries();
+  if (!filteredEntries.length) {
+    tg.showAlert("Eksport uchun ma'lumot yo'q.");
+    return;
+  }
+
+  const totalTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
+  const totalAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
+  const totalPaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.paid_amount), 0);
+  const totalUnpaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.unpaid_amount), 0);
+
+  const rowsHtml = filteredEntries.map((entry, idx) => `
+    <tr>
+      <td>${idx + 1}. ${escapeHtml(entry.client)}</td>
+      <td>${entry.order_id}</td>
+      <td>${escapeHtml(entry.product)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.tons)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.amount)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.paid_amount)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.unpaid_amount)}</td>
+    </tr>
+  `).join('');
+
+  const period = escapeHtml(document.getElementById('reportsResult')?.dataset?.reportPeriod || '');
+  const html = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Hisobot PDF</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; }
+          h2 { margin: 0 0 8px; }
+          .meta { margin-bottom: 14px; color: #444; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border: 1px solid #999; padding: 6px 8px; }
+          th { background: #f2f2f2; }
+          tfoot td { font-weight: 700; background: #fafafa; }
+        </style>
+      </head>
+      <body>
+        <h2>Hisobot</h2>
+        <div class="meta">Davr: ${period}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Mijoz</th>
+              <th>Buyurtma ID</th>
+              <th>Mahsulot</th>
+              <th>Tonna</th>
+              <th>Jami summa</th>
+              <th>To'langan</th>
+              <th>To'lanmagan</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3">Jami</td>
+              <td style="text-align:right;">${formatReportTons(totalTons)}</td>
+              <td style="text-align:right;">${formatMoney(totalAmount)}</td>
+              <td style="text-align:right;">${formatMoney(totalPaid)}</td>
+              <td style="text-align:right;">${formatMoney(totalUnpaid)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </body>
+    </html>
+  `;
+
+  const periodSafe = String(period || 'hisobot').replace(/[^0-9A-Za-z._-]/g, '_');
+  const fileName = `hisobot_${periodSafe}.html`;
+  const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  api('/webapp/api/reports/send-pdf', {
+    method: 'POST',
+    body: JSON.stringify({
+      tg_id: userId,
+      period: document.getElementById('reportsResult')?.dataset?.reportPeriod || '',
+      file_name: fileName,
+      html,
+    })
+  })
+    .then(() => tg.showAlert("✅ HTML fayl bot orqali ham yuborildi, va fayl ham yuklab olindi."))
+    .catch((e) => tg.showAlert("⚠️ Fayl yuklab olindi, lekin botga yuborishda xato: " + e.message));
+}
+
+function renderReportsResult(data) {
+  const filteredEntries = getFilteredReportEntries();
+
+  const filteredTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
+  const filteredAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
+  const filteredPaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.paid_amount), 0);
+  const filteredUnpaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.unpaid_amount), 0);
+
+  const items = filteredEntries.map((entry, idx) => `
+    <div class="panel">
+      <b>${idx + 1}. ${entry.client}</b><br>
+      Buyurtma: #${entry.order_id}<br>
+      Mahsulot: ${entry.product}<br>
+      Sana: ${formatDateTime(entry.created_at)}<br>
+      Miqdor: ${entry.tons} t<br>
+      Jami summa: ${entry.amount} so'm<br>
+      To'langan: ${entry.paid_amount} so'm<br>
+      To'lanmagan: ${entry.unpaid_amount} so'm
+    </div>
+  `).join('');
+
+  const emptyMessage = reportsSearchQuery
+    ? "<div class='panel'>Qidiruv bo'yicha ma'lumot topilmadi.</div>"
+    : "<div class='panel'>Tanlangan davr bo'yicha ma'lumot topilmadi.</div>";
+
+  const listHtml = items || emptyMessage;
+  const reportsNode = document.getElementById('reportsResult');
+  if (reportsNode) {
+    reportsNode.innerHTML = `
+      <div class="panel">Davr: ${data.period}<br>Yopilgan buyurtmalar: ${filteredEntries.length}<br>Jami tonna: ${formatReportTons(filteredTons)} t<br>Jami summa: ${formatMoney(filteredAmount)} so'm<br>Shundan to'langan: ${formatMoney(filteredPaid)} so'm<br>Shundan to'lanmagan: ${formatMoney(filteredUnpaid)} so'm</div>
+      ${listHtml}
+    `;
+  }
+}
+
+function onReportsSearchInput(value) {
+  reportsSearchQuery = String(value || '').trim();
+  const reportsNode = document.getElementById('reportsResult');
+  if (!reportsNode || !reportsNode.dataset.reportMeta) return;
+  try {
+    renderReportsResult(JSON.parse(reportsNode.dataset.reportMeta));
+  } catch {
+    // no-op
+  }
+}
+
+async function applyReportsFilter() {
+  const startDate = document.getElementById('reportStartDate')?.value;
+  const endDate = document.getElementById('reportEndDate')?.value;
+  if (!startDate || !endDate) {
+    tg.showAlert('Iltimos, ikkala sanani ham kiriting.');
+    return;
+  }
+
+  try {
+    const data = await api(`/webapp/api/reports?tg_id=${userId}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`);
+    reportsEntriesCache = data.entries || [];
+    const reportsNode = document.getElementById('reportsResult');
+    if (reportsNode) {
+      reportsNode.dataset.reportMeta = JSON.stringify(data);
+      reportsNode.dataset.reportPeriod = String(data.period || '');
+    }
+    renderReportsResult(data);
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function loadReports() {
+  const {startDate, endDate} = getCurrentMonthRange();
+  reportsSearchQuery = '';
+
+  showSection(`
+    <div class="panel">
+      <b>Hisobot davri</b>
+      <input id="reportStartDate" type="date" value="${startDate}" />
+      <input id="reportEndDate" type="date" value="${endDate}" />
+      <button class="buy-btn" onclick="applyReportsFilter()">Hisobotni yangilash</button>
+      <button class="secondary-btn" onclick="exportReportsPdf()">PDF eksport</button>
+      <input id="reportsSearch" placeholder="Qidirish: mijoz ismi yoki telefon" oninput="onReportsSearchInput(this.value)" />
+    </div>
+    <div id="reportsResult"></div>
+  `);
+
+  await applyReportsFilter();
+}
+
+function showContact() {
+  showSection(`
+    <div class="panel contact-list">
+      <div class="contact-item">
+        <span class="icon">${ICONS.location}</span>
+        <div>
+          <b>Самаркандская область, Тайлакский район, населённый пункт Курганча</b><br>
+          <a href="https://yandex.uz/maps/-/CPqdYI5f" target="_blank" rel="noopener noreferrer">местоположение</a>
+        </div>
+      </div>
+      <div class="contact-item">
+        <span class="icon">${ICONS.phone}</span>
+        <div><b>+998955309999</b></div>
+      </div>
+      <div class="contact-item">
+        <span class="icon">${ICONS.phone}</span>
+        <div><b>+998953309999</b></div>
+      </div>
+    </div>
+  `);
+}
+
+function renderRoleMenu(currentRole) {
+  renderMenu([
+    {label:'Mahsulotlar', icon:ICONS.products, action:'loadManageProducts()'},
+    {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
+    {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
+    {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
+    {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
+    {label:'Kassaviy operatsiyalar', icon:ICONS.cash, action:'loadCashbox()'},
+    {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
+    {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
+  ]);
+}
+
+async function initAfterLogin() {
+  renderRoleMenu('admin');
+  showMainMenu();
+  await loadManageProducts();
+}
+
+async function init() {
+  const ok = await restoreSession();
+  if (ok) {
+    await initAfterLogin();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
