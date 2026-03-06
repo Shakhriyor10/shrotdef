@@ -574,11 +574,15 @@ async function cancelOrder(orderId) {
 let ordersCache = [];
 let ordersSearchQuery = '';
 let ordersStatusFilter = 'all';
+let ordersPaymentFilter = 'all';
 
 function renderOrdersList() {
   const filtered = ordersCache.filter((order) => {
     const statusOk = ordersStatusFilter === 'all' || order.status === ordersStatusFilter;
     if (!statusOk) return false;
+    if (ordersPaymentFilter === 'unpaid' && Number(order.remaining_amount_raw || 0) <= 0) return false;
+    if (ordersPaymentFilter === 'partial' && Number(order.paid_amount_raw || 0) <= 0) return false;
+    if (ordersPaymentFilter === 'partial' && Number(order.remaining_amount_raw || 0) <= 0) return false;
     if (!ordersSearchQuery) return true;
     const query = ordersSearchQuery.toLowerCase();
     const haystack = [
@@ -603,11 +607,15 @@ function renderOrdersList() {
         <div>⚖️ Miqdor: <b>${o.quantity}</b></div>
         <div>📍 Manzil: <b>${o.address}</b></div>
         <div>💵 Jami summa: <b>${o.total_amount}</b></div>
+        <div>✅ To'langan: <b>${o.paid_amount || '0'}</b> so'm</div>
+        <div>🧾 Qoldiq: <b>${o.remaining_amount || '0'}</b> so'm</div>
+        <div>🔢 To'lovlar soni: <b>${o.payments_count || 0}</b></div>
         <div style="margin-top:6px;color:${meta.color};font-weight:700;">Holat: ${statusLabel}</div>
         ${o.can_admin_manage ? `
           <button class="buy-btn" onclick="adminUpdateOrderStatus(${o.id}, 'close')">Qabul qilish</button>
           <button class="secondary-btn" onclick="adminUpdateOrderStatus(${o.id}, 'cancel')">Bekor qilish</button>
         ` : ''}
+        ${(role === 'admin' && o.status === 'closed') ? `<button class="buy-btn" onclick="managePayments(${o.id})">To'lov qo'shish / o'chirish</button>` : ''}
         ${o.can_cancel ? `<button class="secondary-btn" onclick="cancelOrder(${o.id})">Buyurtmani bekor qilish</button>` : ''}
       </div>
     `;
@@ -624,9 +632,65 @@ function onOrdersStatusChange(value) {
   renderOrdersList();
 }
 
+function onOrdersPaymentChange(value) {
+  ordersPaymentFilter = value || 'all';
+  renderOrdersList();
+}
+
 function onOrdersSearchInput(value) {
   ordersSearchQuery = String(value || '').trim();
   renderOrdersList();
+}
+
+async function managePayments(orderId) {
+  const amountRaw = window.prompt("To'lov summasini kiriting (so'm). Bekor uchun bo'sh qoldiring:");
+  if (amountRaw !== null && String(amountRaw).trim() !== '') {
+    const amount = Number(String(amountRaw).replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      tg.showAlert("To'g'ri summa kiriting.");
+      return;
+    }
+    try {
+      await api(`/webapp/api/orders/${orderId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify({tg_id: userId, amount})
+      });
+      tg.showAlert("✅ To'lov qo'shildi.");
+      await loadOrders();
+      return;
+    } catch (e) {
+      tg.showAlert('Xato: ' + e.message);
+      return;
+    }
+  }
+
+  try {
+    const data = await api(`/webapp/api/orders/${orderId}/payments?tg_id=${userId}`);
+    const payments = data.payments || [];
+    if (!payments.length) {
+      tg.showAlert("Bu buyurtma uchun to'lovlar yo'q.");
+      return;
+    }
+    const msg = payments
+      .slice(0, 10)
+      .map((p, i) => `${i + 1}) #${p.id} — ${p.amount_label} so'm`)
+      .join('\n');
+    const chosen = window.prompt(`O'chirish uchun to'lov ID kiriting:\n${msg}`);
+    if (!chosen) return;
+    const paymentId = Number(chosen);
+    if (!paymentId) {
+      tg.showAlert("ID noto'g'ri.");
+      return;
+    }
+    await api(`/webapp/api/orders/${orderId}/payments/${paymentId}/delete`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert("✅ To'lov o'chirildi.");
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
 }
 
 async function adminUpdateOrderStatus(orderId, action) {
@@ -658,6 +722,7 @@ async function loadOrders() {
   ordersCache = data.orders || [];
   ordersSearchQuery = '';
   ordersStatusFilter = 'all';
+  ordersPaymentFilter = 'all';
 
   const searchPlaceholder = role === 'admin'
     ? 'Qidirish: mijoz ismi yoki telefon...'
@@ -672,6 +737,11 @@ async function loadOrders() {
           <option value="open">🟠 Ochiq</option>
           <option value="closed">🟢 Qabul qilingan</option>
           <option value="canceled">🔴 Bekor qilingan</option>
+        </select>
+        <select id="paymentFilter" onchange="onOrdersPaymentChange(this.value)">
+          <option value="all">To'lov holati: barchasi</option>
+          <option value="unpaid">Faqat to'lanmagan</option>
+          <option value="partial">Qisman to'langan</option>
         </select>
       </div>
     </div>
@@ -694,6 +764,13 @@ async function renderWarehouseProductsView() {
   if (root) root.innerHTML = cards;
 }
 
+let warehouseReceiptsPage = 1;
+let warehouseReceiptsPageSize = 10;
+let warehouseStartDate = '';
+let warehouseEndDate = '';
+let warehousePaymentFilter = 'all';
+let warehouseRemainingFilter = 'all';
+
 async function createWarehouseReceipt() {
   const productId = Number(document.getElementById('receiptProduct')?.value || 0);
   const quantityTons = document.getElementById('receiptQty')?.value || '';
@@ -714,6 +791,110 @@ async function createWarehouseReceipt() {
   }
 }
 
+
+async function manageWarehouseReceiptPayments(receiptId) {
+  const amountRaw = window.prompt("Prihod uchun to'lov summasini kiriting (so'm). O'chirish uchun bo'sh qoldiring:");
+  if (amountRaw !== null && String(amountRaw).trim() !== '') {
+    const amount = Number(String(amountRaw).replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      tg.showAlert("To'g'ri summa kiriting.");
+      return;
+    }
+    try {
+      await api(`/webapp/api/warehouse/receipts/${receiptId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify({tg_id: userId, amount})
+      });
+      tg.showAlert("✅ Prihod to'lovi qo'shildi.");
+      await loadWarehouse();
+      return;
+    } catch (e) {
+      tg.showAlert('Xato: ' + e.message);
+      return;
+    }
+  }
+
+  try {
+    const data = await api(`/webapp/api/warehouse/receipts/${receiptId}/payments?tg_id=${userId}`);
+    const payments = data.payments || [];
+    if (!payments.length) {
+      tg.showAlert("Bu prihod uchun to'lovlar yo'q.");
+      return;
+    }
+    const msg = payments
+      .slice(0, 10)
+      .map((p, i) => `${i + 1}) #${p.id} — ${p.amount_label} so'm`)
+      .join('\n');
+    const chosen = window.prompt(`O'chirish uchun to'lov ID kiriting:\n${msg}`);
+    if (!chosen) return;
+    const paymentId = Number(chosen);
+    if (!paymentId) {
+      tg.showAlert("ID noto'g'ri.");
+      return;
+    }
+    await api(`/webapp/api/warehouse/receipts/${receiptId}/payments/${paymentId}/delete`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert("✅ Prihod to'lovi o'chirildi.");
+    await loadWarehouse();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function renderWarehouseReceiptsView() {
+  const params = new URLSearchParams({
+    tg_id: String(userId),
+    page: String(warehouseReceiptsPage),
+    page_size: String(warehouseReceiptsPageSize),
+    payment_filter: warehousePaymentFilter,
+    remaining_filter: warehouseRemainingFilter,
+  });
+  if (warehouseStartDate) params.set('start_date', warehouseStartDate);
+  if (warehouseEndDate) params.set('end_date', warehouseEndDate);
+
+  const data = await api(`/webapp/api/warehouse/receipts?${params.toString()}`);
+  const cards = (data.receipts || []).map(item => `
+    <div class="panel">
+      <b>Prihod #${item.id}</b><br>
+      Mahsulot: <b>${item.product_name}</b><br>
+      Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
+      Jami summa: <b>${item.total_amount_label} so'm</b><br>
+      To'langan: <b>${item.paid_amount_label} so'm</b><br>
+      Qoldiq: <b>${item.remaining_amount_label} so'm</b><br>
+      To'lovlar soni: <b>${item.payments_count || 0}</b><br>
+      <button class="buy-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish / o'chirish</button>
+    </div>
+  `).join('') || "<div class='panel'>Prihodlar yo'q.</div>";
+
+  const pagination = data.pagination || {};
+  const pagerHtml = `
+    <div class="panel">
+      Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})<br>
+      <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(-1)">⬅️ Oldingi</button>
+      <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(1)">Keyingi ➡️</button>
+    </div>
+  `;
+
+  const root = document.getElementById('warehouseReceipts');
+  if (root) root.innerHTML = cards + pagerHtml;
+}
+
+function applyWarehouseReceiptFilters() {
+  warehouseStartDate = document.getElementById('warehouseStartDate')?.value || '';
+  warehouseEndDate = document.getElementById('warehouseEndDate')?.value || '';
+  warehousePaymentFilter = document.getElementById('warehousePaymentFilter')?.value || 'all';
+  warehouseRemainingFilter = document.getElementById('warehouseRemainingFilter')?.value || 'all';
+  warehouseReceiptsPage = 1;
+  renderWarehouseReceiptsView().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+function changeWarehouseReceiptsPage(delta) {
+  warehouseReceiptsPage = Math.max(1, warehouseReceiptsPage + Number(delta || 0));
+  renderWarehouseReceiptsView().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
 async function loadWarehouse() {
   const productsData = await api(`/webapp/api/products?tg_id=${userId}`);
   const options = (productsData.products || []).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
@@ -729,18 +910,44 @@ async function loadWarehouse() {
       </div>
     </div>
     <div id="warehouseResult"></div>
+    <div class="panel">
+      <b>Prihodlar va to'lovlar</b><br>
+      <input id="warehouseStartDate" type="date" value="${warehouseStartDate}" />
+      <input id="warehouseEndDate" type="date" value="${warehouseEndDate}" />
+      <select id="warehousePaymentFilter">
+        <option value="all" ${warehousePaymentFilter === 'all' ? 'selected' : ''}>To'lov holati: barchasi</option>
+        <option value="paid" ${warehousePaymentFilter === 'paid' ? 'selected' : ''}>To'liq to'langan</option>
+        <option value="unpaid" ${warehousePaymentFilter === 'unpaid' ? 'selected' : ''}>To'lanmagan</option>
+        <option value="partial" ${warehousePaymentFilter === 'partial' ? 'selected' : ''}>Qisman to'langan</option>
+      </select>
+      <select id="warehouseRemainingFilter">
+        <option value="all" ${warehouseRemainingFilter === 'all' ? 'selected' : ''}>Qoldiq: barchasi</option>
+        <option value="with_remaining" ${warehouseRemainingFilter === 'with_remaining' ? 'selected' : ''}>Qoldig'i bor</option>
+        <option value="no_remaining" ${warehouseRemainingFilter === 'no_remaining' ? 'selected' : ''}>Qoldig'i yo'q</option>
+      </select>
+      <button class="buy-btn" onclick="applyWarehouseReceiptFilters()">Filterni qo'llash</button>
+    </div>
+    <div id="warehouseReceipts"></div>
   `);
   await renderWarehouseProductsView();
+  await renderWarehouseReceiptsView();
 }
 
 async function loadCashbox() {
   const data = await api(`/webapp/api/cashbox?tg_id=${userId}`);
+  const ops = (data.operations || []).map(op => {
+    const sign = op.operation_type === 'income' ? '+' : '-';
+    const emoji = op.operation_type === 'income' ? '🟢' : '🔴';
+    return `<div class="panel">${emoji} ${sign}${op.amount_label} so'm<br><span class="muted">${op.note || op.reason || ''}</span></div>`;
+  }).join('') || "<div class='panel'>Operatsiyalar yo'q.</div>";
   showSection(`
     <div class="panel">
       <b>Kassa:</b> ${formatMoney(data.amount)} so'm
       <input id="cashboxAmount" type="number" step="0.01" value="${Number(data.amount || 0)}" />
       <button class="buy-btn" onclick="saveCashbox()">Kassani saqlash</button>
     </div>
+    <div class="panel"><b>So'nggi operatsiyalar</b></div>
+    ${ops}
   `);
 }
 

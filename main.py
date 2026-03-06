@@ -1329,28 +1329,39 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             return web.json_response({"orders": []})
         admin_view = is_admin(tg_id)
         rows = db.list_orders_with_details(limit=50) if admin_view else db.list_orders_for_user(user["id"])
-        orders = [
-            {
-                "id": row["id"],
-                "product_name": row["product_name"],
-                "quantity": row["quantity"],
-                "address": row["address"],
-                "status": row["status"],
-                "status_label": format_status_label(row["status"], row["canceled_by_role"]),
-                "total_amount": format_deal_price(
-                    row["quantity"],
-                    row["order_price_per_kg"] or row["product_price_per_kg"],
-                ),
-                "can_cancel": (not admin_view and row["status"] == "open"),
-                "client_name": format_user_name(
-                    row["first_name"] if admin_view else None,
-                    row["last_name"] if admin_view else None,
-                ) if admin_view else None,
-                "client_phone": row["phone"] if admin_view else None,
-                "can_admin_manage": (admin_view and row["status"] == "open"),
-            }
-            for row in rows
-        ]
+        orders = []
+        for row in rows:
+            price_per_kg = row["order_price_per_kg"] or row["product_price_per_kg"]
+            qty_kg = parse_quantity_to_kg(row["quantity"])
+            total_amount_raw = float((qty_kg or 0) * float(price_per_kg or 0))
+            paid_amount_raw = float(row["paid_amount"] or 0)
+            remaining_amount_raw = max(total_amount_raw - paid_amount_raw, 0)
+            orders.append(
+                {
+                    "id": row["id"],
+                    "product_name": row["product_name"],
+                    "quantity": row["quantity"],
+                    "address": row["address"],
+                    "status": row["status"],
+                    "status_label": format_status_label(row["status"], row["canceled_by_role"]),
+                    "total_amount": format_deal_price(
+                        row["quantity"],
+                        price_per_kg,
+                    ),
+                    "paid_amount": format_money_with_commas(paid_amount_raw),
+                    "paid_amount_raw": paid_amount_raw,
+                    "remaining_amount": format_money_with_commas(remaining_amount_raw),
+                    "remaining_amount_raw": remaining_amount_raw,
+                    "payments_count": int(row["payments_count"] or 0),
+                    "can_cancel": (not admin_view and row["status"] == "open"),
+                    "client_name": format_user_name(
+                        row["first_name"] if admin_view else None,
+                        row["last_name"] if admin_view else None,
+                    ) if admin_view else None,
+                    "client_phone": row["phone"] if admin_view else None,
+                    "can_admin_manage": (admin_view and row["status"] == "open"),
+                }
+            )
         return web.json_response({"orders": orders})
 
     async def order_cancel(request: web.Request) -> web.Response:
@@ -1428,6 +1439,53 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         await notify_admins_new_order(bot, order_id)
         return web.json_response({"ok": True, "order_id": order_id})
 
+    async def order_payments_get(request: web.Request) -> web.Response:
+        order_id = int(request.match_info.get("order_id", "0") or 0)
+        tg_id = parse_tg_id(request.query.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        payments = [
+            {
+                "id": row["id"],
+                "amount": float(row["amount"]),
+                "amount_label": format_money_with_commas(float(row["amount"])),
+                "created_at": row["created_at"],
+            }
+            for row in db.list_order_payments(order_id)
+        ]
+        return web.json_response({"payments": payments})
+
+    async def order_payments_add(request: web.Request) -> web.Response:
+        order_id = int(request.match_info.get("order_id", "0") or 0)
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        amount = float(payload.get("amount") or 0)
+        if amount <= 0:
+            return web.json_response({"error": "To'lov summasi 0 dan katta bo'lishi kerak."}, status=400)
+        try:
+            payment_id = db.add_order_payment(order_id, amount, tg_id)
+        except LookupError:
+            return web.json_response({"error": "Buyurtma topilmadi."}, status=404)
+        except RuntimeError:
+            return web.json_response({"error": "To'lov faqat qabul qilingan buyurtmaga qo'shiladi."}, status=400)
+        except ValueError:
+            return web.json_response({"error": "To'lov qolgan summadan oshib ketdi."}, status=400)
+        return web.json_response({"ok": True, "payment_id": payment_id})
+
+    async def order_payments_delete(request: web.Request) -> web.Response:
+        order_id = int(request.match_info.get("order_id", "0") or 0)
+        payment_id = int(request.match_info.get("payment_id", "0") or 0)
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        deleted = db.delete_order_payment(order_id, payment_id, tg_id)
+        if not deleted:
+            return web.json_response({"error": "To'lov topilmadi."}, status=404)
+        return web.json_response({"ok": True})
+
     async def warehouse_products_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not is_admin(tg_id):
@@ -1458,14 +1516,154 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         product = db.get_product(product_id)
         if not product:
             return web.json_response({"error": "Mahsulot topilmadi."}, status=404)
-        db.add_stock_receipt(product_id, quantity_tons, total_amount, tg_id)
+        receipt_id = db.add_stock_receipt(product_id, quantity_tons, total_amount, tg_id)
+        return web.json_response({"ok": True, "receipt_id": receipt_id})
+
+    async def warehouse_receipts_list_api(request: web.Request) -> web.Response:
+        tg_id = parse_tg_id(request.query.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        page = max(int(request.query.get("page") or 1), 1)
+        page_size = int(request.query.get("page_size") or 10)
+        page_size = min(max(page_size, 1), 50)
+        offset = (page - 1) * page_size
+
+        start_date = (request.query.get("start_date") or "").strip() or None
+        end_date = (request.query.get("end_date") or "").strip() or None
+        payment_filter = (request.query.get("payment_filter") or "all").strip().lower()
+        remaining_filter = (request.query.get("remaining_filter") or "all").strip().lower()
+
+        valid_payment_filters = {"all", "paid", "unpaid", "partial"}
+        valid_remaining_filters = {"all", "with_remaining", "no_remaining"}
+        if payment_filter not in valid_payment_filters:
+            return web.json_response({"error": "Noto'g'ri payment_filter."}, status=400)
+        if remaining_filter not in valid_remaining_filters:
+            return web.json_response({"error": "Noto'g'ri remaining_filter."}, status=400)
+
+        def _valid_date(v: str) -> bool:
+            try:
+                datetime.strptime(v, "%Y-%m-%d")
+                return True
+            except ValueError:
+                return False
+
+        if start_date and not _valid_date(start_date):
+            return web.json_response({"error": "start_date noto'g'ri formatda (YYYY-MM-DD)."}, status=400)
+        if end_date and not _valid_date(end_date):
+            return web.json_response({"error": "end_date noto'g'ri formatda (YYYY-MM-DD)."}, status=400)
+
+        total = db.count_warehouse_receipts(
+            start_date=start_date,
+            end_date=end_date,
+            payment_filter=payment_filter,
+            remaining_filter=remaining_filter,
+        )
+        rows = db.list_warehouse_receipts(
+            limit=page_size,
+            offset=offset,
+            start_date=start_date,
+            end_date=end_date,
+            payment_filter=payment_filter,
+            remaining_filter=remaining_filter,
+        )
+        receipts = []
+        for row in rows:
+            total_amount = float(row["total_amount"] or 0)
+            paid_amount = float(row["paid_amount"] or 0)
+            remaining_amount = max(total_amount - paid_amount, 0)
+            receipts.append(
+                {
+                    "id": row["id"],
+                    "product_name": row["product_name"],
+                    "quantity_tons": float(row["quantity_tons"] or 0),
+                    "total_amount": total_amount,
+                    "total_amount_label": format_money_with_commas(total_amount),
+                    "paid_amount": paid_amount,
+                    "paid_amount_label": format_money_with_commas(paid_amount),
+                    "remaining_amount": remaining_amount,
+                    "remaining_amount_label": format_money_with_commas(remaining_amount),
+                    "payments_count": int(row["payments_count"] or 0),
+                    "created_at": row["created_at"],
+                }
+            )
+        total_pages = max((total + page_size - 1) // page_size, 1)
+        return web.json_response(
+            {
+                "receipts": receipts,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": total_pages,
+                    "has_prev": page > 1,
+                    "has_next": page < total_pages,
+                },
+            }
+        )
+
+    async def warehouse_receipt_payments_get(request: web.Request) -> web.Response:
+        receipt_id = int(request.match_info.get("receipt_id", "0") or 0)
+        tg_id = parse_tg_id(request.query.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        payments = [
+            {
+                "id": row["id"],
+                "amount": float(row["amount"]),
+                "amount_label": format_money_with_commas(float(row["amount"])),
+                "created_at": row["created_at"],
+            }
+            for row in db.list_warehouse_receipt_payments(receipt_id)
+        ]
+        return web.json_response({"payments": payments})
+
+    async def warehouse_receipt_payments_add(request: web.Request) -> web.Response:
+        receipt_id = int(request.match_info.get("receipt_id", "0") or 0)
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        amount = float(payload.get("amount") or 0)
+        if amount <= 0:
+            return web.json_response({"error": "To'lov summasi 0 dan katta bo'lishi kerak."}, status=400)
+        try:
+            payment_id = db.add_warehouse_receipt_payment(receipt_id, amount, tg_id)
+        except LookupError:
+            return web.json_response({"error": "Prihod topilmadi."}, status=404)
+        except ValueError:
+            return web.json_response({"error": "To'lov qolgan summadan oshib ketdi."}, status=400)
+        return web.json_response({"ok": True, "payment_id": payment_id})
+
+    async def warehouse_receipt_payments_delete(request: web.Request) -> web.Response:
+        receipt_id = int(request.match_info.get("receipt_id", "0") or 0)
+        payment_id = int(request.match_info.get("payment_id", "0") or 0)
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        deleted = db.delete_warehouse_receipt_payment(receipt_id, payment_id, tg_id)
+        if not deleted:
+            return web.json_response({"error": "To'lov topilmadi."}, status=404)
         return web.json_response({"ok": True})
 
     async def cashbox_get_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not is_admin(tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
-        return web.json_response({"amount": db.get_cashbox_amount()})
+        operations = [
+            {
+                "id": row["id"],
+                "operation_type": row["operation_type"],
+                "amount": float(row["amount"]),
+                "amount_label": format_money_with_commas(float(row["amount"])),
+                "reason": row["reason"],
+                "note": row["note"] or "",
+                "created_at": row["created_at"],
+            }
+            for row in db.list_cashbox_operations(limit=20)
+        ]
+        return web.json_response({"amount": db.get_cashbox_amount(), "operations": operations})
 
     async def cashbox_set_api(request: web.Request) -> web.Response:
         payload = await request.json()
@@ -1558,8 +1756,15 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/webapp/api/orders", orders_post)
     app.router.add_post("/webapp/api/orders/{order_id}/cancel", order_cancel)
     app.router.add_post("/webapp/api/orders/{order_id}/admin-status", order_admin_status)
+    app.router.add_get("/webapp/api/orders/{order_id}/payments", order_payments_get)
+    app.router.add_post("/webapp/api/orders/{order_id}/payments", order_payments_add)
+    app.router.add_post("/webapp/api/orders/{order_id}/payments/{payment_id}/delete", order_payments_delete)
     app.router.add_get("/webapp/api/warehouse/products", warehouse_products_api)
     app.router.add_post("/webapp/api/warehouse/receipts", warehouse_receipt_api)
+    app.router.add_get("/webapp/api/warehouse/receipts", warehouse_receipts_list_api)
+    app.router.add_get("/webapp/api/warehouse/receipts/{receipt_id}/payments", warehouse_receipt_payments_get)
+    app.router.add_post("/webapp/api/warehouse/receipts/{receipt_id}/payments", warehouse_receipt_payments_add)
+    app.router.add_post("/webapp/api/warehouse/receipts/{receipt_id}/payments/{payment_id}/delete", warehouse_receipt_payments_delete)
     app.router.add_get("/webapp/api/cashbox", cashbox_get_api)
     app.router.add_post("/webapp/api/cashbox", cashbox_set_api)
     app.router.add_get("/webapp/api/stats", stats_api)
