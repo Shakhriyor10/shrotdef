@@ -1378,8 +1378,8 @@ function exportReportsPdf() {
 
   const rowsHtml = filteredEntries.map((entry, idx) => `
     <tr>
-      <td>${idx + 1}. ${escapeHtml(entry.client)}</td>
       <td>${entry.order_id}</td>
+      <td>${idx + 1}. ${escapeHtml(entry.client)}</td>
       <td>${escapeHtml(entry.product)}</td>
       <td style="text-align:right;">${escapeHtml(entry.tons)}</td>
       <td style="text-align:right;">${escapeHtml(entry.amount)}</td>
@@ -1411,8 +1411,8 @@ function exportReportsPdf() {
         <table>
           <thead>
             <tr>
-              <th>Mijoz</th>
               <th>Buyurtma ID</th>
+              <th>Mijoz</th>
               <th>Mahsulot</th>
               <th>Tonna</th>
               <th>Jami summa</th>
@@ -1423,7 +1423,8 @@ function exportReportsPdf() {
           <tbody>${rowsHtml}</tbody>
           <tfoot>
             <tr>
-              <td colspan="3">Jami</td>
+              <td colspan="2">Jami</td>
+              <td>—</td>
               <td style="text-align:right;">${formatReportTons(totalTons)}</td>
               <td style="text-align:right;">${formatMoney(totalAmount)}</td>
               <td style="text-align:right;">${formatMoney(totalPaid)}</td>
@@ -1475,9 +1476,9 @@ function renderReportsResult(data) {
   const rowsHtml = filteredEntries.map((entry) => `
     <tr>
       <td>#${entry.order_id}</td>
+      <td>${escapeHtml(entry.client || '')}</td>
       <td>${escapeHtml(entry.product || '')}</td>
       <td>${escapeHtml(String(entry.tons || '0'))} t</td>
-      <td>${escapeHtml(entry.client || '')}</td>
       <td>${formatDateTime(entry.created_at)}</td>
       <td>${formatMoney(parseReportNumber(entry.amount))} so'm</td>
       <td>${formatMoney(parseReportNumber(entry.paid_amount))} so'm</td>
@@ -1491,9 +1492,9 @@ function renderReportsResult(data) {
         <thead>
           <tr>
             <th>Buyurtma ID</th>
+            <th>Mijoz</th>
             <th>Mahsulot</th>
             <th>Miqdor (tonna)</th>
-            <th>Mijoz</th>
             <th>Sana</th>
             <th>Jami summa</th>
             <th>To'langan</th>
@@ -1505,7 +1506,7 @@ function renderReportsResult(data) {
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="2">Jami</td>
+            <td colspan="3">Jami</td>
             <td>${formatReportTons(filteredTons)} t</td>
             <td>${filteredEntries.length} ta buyurtma</td>
             <td>—</td>
