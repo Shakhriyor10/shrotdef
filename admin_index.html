@@ -27,20 +27,15 @@
       min-height: 100vh;
       background: var(--bg-color);
       color: var(--text-color);
-      display: flex;
-      justify-content: center;
-      padding: 16px;
       transition: background .2s ease, color .2s ease;
     }
 
     .app-shell {
-      width: min(100%, 980px);
-      background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-      border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
-      border-radius: 18px;
-      overflow: hidden;
-      box-shadow: 0 18px 45px rgba(0, 0, 0, .10);
-      backdrop-filter: blur(4px);
+      width: 100%;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: var(--bg-color);
     }
 
     .login-overlay {
@@ -61,10 +56,15 @@
     header {
       background: var(--header-bg);
       color: var(--text-color);
-      padding: 10px 14px;
+      padding: 10px 16px;
       border-bottom: 1px solid var(--border-color);
       display: flex;
-      justify-content: center;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
     }
 
     .brand {
@@ -91,8 +91,20 @@
 
     .container {
       padding: 14px;
-      max-width: 860px;
-      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 14px;
+      min-height: calc(100vh - 70px);
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border-color);
+      padding-right: 14px;
+    }
+
+    .main-area {
+      overflow: auto;
+      padding-bottom: 14px;
     }
 
     .grid {
@@ -105,7 +117,8 @@
 
     .menu-btn {
       background: var(--card-bg);
-      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+      box-shadow: none;
+      border: 1px solid var(--border-color);
       color: var(--text-color);
       font-weight: 700;
       width: 100%;
@@ -247,22 +260,40 @@
       margin-top: 1px;
     }
 
-    @media (max-width: 768px) {
-      body {
-        padding: 0;
-      }
+    .cash-top {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 6px 10px;
+      font-weight: 700;
+    }
 
-      .app-shell {
-        width: 100%;
-        min-height: 100vh;
-        border-radius: 0;
-        border: none;
-        box-shadow: none;
-      }
+    .icon-btn {
+      border: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-color);
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      margin: 0;
+    }
 
+    @media (max-width: 900px) {
       .container {
-        padding: 12px;
-        grid-template-columns: 1fr !important;
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 12px;
       }
     }
   </style>
@@ -278,10 +309,16 @@
     </div>
   </div>
   <div class="app-shell">
-    <header><div class="brand"><img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span></div></header>
-    <div class="container" style="display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;max-width:100%;">
-      <div id="menu" class="grid"></div>
-      <div id="content"></div>
+    <header>
+      <div class="brand"><img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span></div>
+      <div class="cash-top">
+        <span>Kassa: <span id="topCashAmount">...</span> so'm</span>
+        <button class="icon-btn" onclick="loadCashbox()" title="Kassani tahrirlash">✎</button>
+      </div>
+    </header>
+    <div class="container">
+      <aside class="sidebar"><div id="menu" class="grid"></div></aside>
+      <main class="main-area"><div id="content"></div></main>
     </div>
   </div>
 
@@ -346,6 +383,18 @@ async function api(path, options={}) {
   return payload || {};
 }
 
+async function refreshTopCash() {
+  if (!userId) return;
+  try {
+    const data = await api(`/webapp/api/cashbox?tg_id=${userId}`);
+    const node = document.getElementById('topCashAmount');
+    if (node) node.textContent = formatMoney(data.amount || 0);
+  } catch {
+    const node = document.getElementById('topCashAmount');
+    if (node) node.textContent = 'xato';
+  }
+}
+
 function showFatalError(message) {
   document.getElementById('menu').classList.add('hidden');
   setContent(`
@@ -367,6 +416,7 @@ function showMainMenu() {
 
 function showSection(html) {
   setContent(html);
+  refreshTopCash();
 }
 
 async function loginAdmin() {
@@ -1123,6 +1173,7 @@ async function saveCashbox() {
     await api('/webapp/api/cashbox', {method:'POST', body:JSON.stringify({tg_id:userId, amount})});
     tg.showAlert('✅ Kassa yangilandi');
     await loadCashbox();
+    await refreshTopCash();
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);
   }
@@ -1401,6 +1452,7 @@ function renderRoleMenu(currentRole) {
 async function initAfterLogin() {
   renderRoleMenu('admin');
   showMainMenu();
+  await refreshTopCash();
   await loadManageProducts();
 }
 
