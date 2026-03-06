@@ -386,6 +386,19 @@ function formatMoney(value) {
   return Number(value || 0).toLocaleString('ru-RU');
 }
 
+function formatDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString('ru-RU', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -619,6 +632,7 @@ function renderOrdersList() {
         ${o.client_name ? `<div>👤 Mijoz: <b>${o.client_name}</b></div>` : ''}
         ${o.client_phone ? `<div>📞 Telefon: <b>${o.client_phone}</b></div>` : ''}
         <div>📦 Mahsulot: <b>${o.product_name}</b></div>
+        <div>📅 Sana: <b>${formatDateTime(o.created_at)}</b></div>
         <div>⚖️ Miqdor: <b>${o.quantity}</b></div>
         <div>📍 Manzil: <b>${o.address}</b></div>
         <div>💵 Jami summa: <b>${o.total_amount}</b></div>
@@ -894,6 +908,7 @@ async function renderWarehouseReceiptsView() {
   const cards = (data.receipts || []).map(item => `
     <div class="panel">
       <b>Prihod #${item.id}</b><br>
+      Sana: <b>${formatDateTime(item.created_at)}</b><br>
       Mahsulot: <b>${item.product_name}</b><br>
       Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
       Jami summa: <b>${item.total_amount_label} so'm</b><br>
@@ -976,7 +991,7 @@ async function loadCashbox() {
   const ops = (data.operations || []).map(op => {
     const sign = op.operation_type === 'income' ? '+' : '-';
     const emoji = op.operation_type === 'income' ? '🟢' : '🔴';
-    return `<div class="panel">${emoji} ${sign}${op.amount_label} so'm<br><span class="muted">${op.note || op.reason || ''}</span></div>`;
+    return `<div class="panel">${emoji} ${sign}${op.amount_label} so'm<br><span class="muted">${op.note || op.reason || ''}</span><br><span class="muted">📅 ${formatDateTime(op.created_at)}</span></div>`;
   }).join('') || "<div class='panel'>Operatsiyalar yo'q.</div>";
   showSection(`
     <div class="panel">

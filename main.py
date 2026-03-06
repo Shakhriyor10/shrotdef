@@ -1348,6 +1348,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                     "id": row["id"],
                     "product_name": row["product_name"],
                     "quantity": row["quantity"],
+                    "created_at": row["created_at"],
                     "address": row["address"],
                     "status": row["status"],
                     "status_label": format_status_label(row["status"], row["canceled_by_role"]),
