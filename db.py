@@ -785,32 +785,103 @@ def add_stock_receipt(product_id: int, quantity_tons: float, total_amount: float
         return int(cur.lastrowid)
 
 
-def list_warehouse_receipts(limit: int = 30) -> Iterable[sqlite3.Row]:
+def _build_warehouse_receipts_filters(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    payment_filter: str = "all",
+    remaining_filter: str = "all",
+) -> tuple[str, list[object]]:
+    clauses: list[str] = []
+    params: list[object] = []
+    if start_date:
+        clauses.append("date(wr.created_at) >= date(?)")
+        params.append(start_date)
+    if end_date:
+        clauses.append("date(wr.created_at) <= date(?)")
+        params.append(end_date)
+
+    if payment_filter == "paid":
+        clauses.append("COALESCE(payments.paid_amount, 0) >= wr.total_amount")
+    elif payment_filter == "unpaid":
+        clauses.append("COALESCE(payments.paid_amount, 0) <= 0")
+    elif payment_filter == "partial":
+        clauses.append("COALESCE(payments.paid_amount, 0) > 0")
+        clauses.append("COALESCE(payments.paid_amount, 0) < wr.total_amount")
+
+    if remaining_filter == "with_remaining":
+        clauses.append("(wr.total_amount - COALESCE(payments.paid_amount, 0)) > 0")
+    elif remaining_filter == "no_remaining":
+        clauses.append("(wr.total_amount - COALESCE(payments.paid_amount, 0)) <= 0")
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where_sql, params
+
+
+def list_warehouse_receipts(
+    limit: int = 10,
+    offset: int = 0,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    payment_filter: str = "all",
+    remaining_filter: str = "all",
+) -> Iterable[sqlite3.Row]:
+    where_sql, params = _build_warehouse_receipts_filters(
+        start_date=start_date,
+        end_date=end_date,
+        payment_filter=payment_filter,
+        remaining_filter=remaining_filter,
+    )
+    query = f"""
+        SELECT
+            wr.id,
+            wr.product_id,
+            wr.quantity_tons,
+            wr.total_amount,
+            wr.created_at,
+            wr.created_by,
+            p.name AS product_name,
+            COALESCE(payments.paid_amount, 0) AS paid_amount,
+            COALESCE(payments.payments_count, 0) AS payments_count
+        FROM warehouse_receipts wr
+        JOIN products p ON p.id = wr.product_id
+        LEFT JOIN (
+            SELECT receipt_id, SUM(amount) AS paid_amount, COUNT(*) AS payments_count
+            FROM warehouse_receipt_payments
+            GROUP BY receipt_id
+        ) AS payments ON payments.receipt_id = wr.id
+        {where_sql}
+        ORDER BY datetime(wr.created_at) DESC, wr.id DESC
+        LIMIT ? OFFSET ?
+    """
     with get_connection() as conn:
-        return conn.execute(
-            """
-            SELECT
-                wr.id,
-                wr.product_id,
-                wr.quantity_tons,
-                wr.total_amount,
-                wr.created_at,
-                wr.created_by,
-                p.name AS product_name,
-                COALESCE(payments.paid_amount, 0) AS paid_amount,
-                COALESCE(payments.payments_count, 0) AS payments_count
-            FROM warehouse_receipts wr
-            JOIN products p ON p.id = wr.product_id
-            LEFT JOIN (
-                SELECT receipt_id, SUM(amount) AS paid_amount, COUNT(*) AS payments_count
-                FROM warehouse_receipt_payments
-                GROUP BY receipt_id
-            ) AS payments ON payments.receipt_id = wr.id
-            ORDER BY datetime(wr.created_at) DESC, wr.id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        return conn.execute(query, [*params, limit, offset]).fetchall()
+
+
+def count_warehouse_receipts(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    payment_filter: str = "all",
+    remaining_filter: str = "all",
+) -> int:
+    where_sql, params = _build_warehouse_receipts_filters(
+        start_date=start_date,
+        end_date=end_date,
+        payment_filter=payment_filter,
+        remaining_filter=remaining_filter,
+    )
+    query = f"""
+        SELECT COUNT(*) AS total
+        FROM warehouse_receipts wr
+        LEFT JOIN (
+            SELECT receipt_id, SUM(amount) AS paid_amount
+            FROM warehouse_receipt_payments
+            GROUP BY receipt_id
+        ) AS payments ON payments.receipt_id = wr.id
+        {where_sql}
+    """
+    with get_connection() as conn:
+        row = conn.execute(query, params).fetchone()
+    return int(row["total"] if row else 0)
 
 
 def add_warehouse_receipt_payment(receipt_id: int, amount: float, created_by: Optional[int]) -> int:

@@ -1523,8 +1523,52 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not is_admin(tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
+
+        page = max(int(request.query.get("page") or 1), 1)
+        page_size = int(request.query.get("page_size") or 10)
+        page_size = min(max(page_size, 1), 50)
+        offset = (page - 1) * page_size
+
+        start_date = (request.query.get("start_date") or "").strip() or None
+        end_date = (request.query.get("end_date") or "").strip() or None
+        payment_filter = (request.query.get("payment_filter") or "all").strip().lower()
+        remaining_filter = (request.query.get("remaining_filter") or "all").strip().lower()
+
+        valid_payment_filters = {"all", "paid", "unpaid", "partial"}
+        valid_remaining_filters = {"all", "with_remaining", "no_remaining"}
+        if payment_filter not in valid_payment_filters:
+            return web.json_response({"error": "Noto'g'ri payment_filter."}, status=400)
+        if remaining_filter not in valid_remaining_filters:
+            return web.json_response({"error": "Noto'g'ri remaining_filter."}, status=400)
+
+        def _valid_date(v: str) -> bool:
+            try:
+                datetime.strptime(v, "%Y-%m-%d")
+                return True
+            except ValueError:
+                return False
+
+        if start_date and not _valid_date(start_date):
+            return web.json_response({"error": "start_date noto'g'ri formatda (YYYY-MM-DD)."}, status=400)
+        if end_date and not _valid_date(end_date):
+            return web.json_response({"error": "end_date noto'g'ri formatda (YYYY-MM-DD)."}, status=400)
+
+        total = db.count_warehouse_receipts(
+            start_date=start_date,
+            end_date=end_date,
+            payment_filter=payment_filter,
+            remaining_filter=remaining_filter,
+        )
+        rows = db.list_warehouse_receipts(
+            limit=page_size,
+            offset=offset,
+            start_date=start_date,
+            end_date=end_date,
+            payment_filter=payment_filter,
+            remaining_filter=remaining_filter,
+        )
         receipts = []
-        for row in db.list_warehouse_receipts(limit=30):
+        for row in rows:
             total_amount = float(row["total_amount"] or 0)
             paid_amount = float(row["paid_amount"] or 0)
             remaining_amount = max(total_amount - paid_amount, 0)
@@ -1543,7 +1587,20 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                     "created_at": row["created_at"],
                 }
             )
-        return web.json_response({"receipts": receipts})
+        total_pages = max((total + page_size - 1) // page_size, 1)
+        return web.json_response(
+            {
+                "receipts": receipts,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": total_pages,
+                    "has_prev": page > 1,
+                    "has_next": page < total_pages,
+                },
+            }
+        )
 
     async def warehouse_receipt_payments_get(request: web.Request) -> web.Response:
         receipt_id = int(request.match_info.get("receipt_id", "0") or 0)
