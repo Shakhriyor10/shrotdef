@@ -1146,6 +1146,13 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
         f"🏬 Sklad: {format_tons(stock_tons)} tonna"
     )
     if photos:
+        if isinstance(photos[0], str) and photos[0].startswith("data:image"):
+            await bot.send_message(
+                chat_id=chat_id,
+                text=caption,
+                reply_markup=product_inline_keyboard(product["id"], admin, in_stock=stock_tons > 0),
+            )
+            return
         try:
             await bot.send_photo(
                 chat_id=chat_id,
