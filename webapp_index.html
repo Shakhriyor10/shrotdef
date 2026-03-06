@@ -182,6 +182,18 @@
       grid-template-columns: 1fr;
       gap: 8px;
     }
+    .pagination-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pagination-row .secondary-btn {
+      margin-top: 0;
+      width: auto;
+      flex: 1;
+    }
     .suggestions {
       margin-top: 6px;
       border: 1px solid var(--border-color);
@@ -869,13 +881,15 @@ async function renderWarehouseReceiptsView() {
   `).join('') || "<div class='panel'>Prihodlar yo'q.</div>";
 
   const pagination = data.pagination || {};
-  const pagerHtml = `
+  const pagerHtml = (pagination.total_pages || 1) > 1 ? `
     <div class="panel">
-      Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})<br>
-      <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(-1)">⬅️ Oldingi</button>
-      <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(1)">Keyingi ➡️</button>
+      <div>Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})</div>
+      <div class="pagination-row">
+        <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(-1)">⬅️ Oldingi</button>
+        <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeWarehouseReceiptsPage(1)">Keyingi ➡️</button>
+      </div>
     </div>
-  `;
+  ` : '';
 
   const root = document.getElementById('warehouseReceipts');
   if (root) root.innerHTML = cards + pagerHtml;
