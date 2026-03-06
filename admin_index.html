@@ -768,6 +768,17 @@ function openAddressModal(address) {
   if (modal) modal.style.display = 'flex';
 }
 
+function openAddressModalFromBtn(button) {
+  const raw = button?.getAttribute('data-address') || '';
+  let decoded = '';
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    decoded = raw;
+  }
+  openAddressModal(decoded);
+}
+
 function closeAddressModal(event) {
   if (event && event.target && event.target.id !== 'addressModal') return;
   const modal = document.getElementById('addressModal');
@@ -1043,7 +1054,7 @@ function renderOrdersList() {
         <td>
           <span class="addr-cell">
             <span>${escapeHtml(truncateAddress(o.address || '', 7))}</span>
-            <button class="eye-btn" title="To'liq manzil" onclick="openAddressModal(${JSON.stringify(String(o.address || ''))})">👁</button>
+            <button class="eye-btn" title="To'liq manzil" data-address="${encodeURIComponent(String(o.address || ''))}" onclick="openAddressModalFromBtn(this)">👁</button>
           </span>
         </td>
         <td>${formatMoney(parseReportNumber(o.total_amount || 0))} so'm</td>
