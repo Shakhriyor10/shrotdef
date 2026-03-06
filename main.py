@@ -310,10 +310,14 @@ async def cancel_admin_action(message: types.Message, state: FSMContext) -> None
     await message.answer("❌ Amal bekor qilindi.", reply_markup=user_keyboard(message.from_user.id))
 
 
-def product_inline_keyboard(product_id: int, admin: bool) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text="🛒 Sotib olish uchun ariza yuborish", callback_data=f"order:{product_id}")]
-    ]
+def product_inline_keyboard(product_id: int, admin: bool, in_stock: bool = True) -> InlineKeyboardMarkup:
+    buttons = []
+    if in_stock:
+        buttons.append(
+            [InlineKeyboardButton(text="🛒 Sotib olish uchun ariza yuborish", callback_data=f"order:{product_id}")]
+        )
+    else:
+        buttons.append([InlineKeyboardButton(text="⛔️ Нет в наличие", callback_data="out_of_stock")])
     if admin:
         buttons.append([InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit:{product_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -1085,11 +1089,14 @@ async def send_report_for_period(
 
 
 async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
+    stock_map = {row["id"]: float(row["quantity_tons"]) for row in db.list_stock_products()}
+    stock_tons = stock_map.get(product["id"], 0.0)
     photos = db.get_product_photos(product["id"])
     caption = (
         f"📦 Mahsulot: {product['name']}\n"
         f"💰 Narxi (1 kg): {product['price_per_kg']} сум\n"
-        f"🗒 Tavsif: {product['description'] or 'Kiritilmagan'}"
+        f"🗒 Tavsif: {product['description'] or 'Kiritilmagan'}\n"
+        f"🏬 Sklad: {format_tons(stock_tons)} tonna"
     )
     if photos:
         try:
@@ -1097,7 +1104,7 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
                 chat_id=chat_id,
                 photo=photos[0],
                 caption=caption,
-                reply_markup=product_inline_keyboard(product["id"], admin),
+                reply_markup=product_inline_keyboard(product["id"], admin, in_stock=stock_tons > 0),
             )
         except TelegramBadRequest as exc:
             logging.warning(
@@ -1109,7 +1116,7 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
             await bot.send_message(
                 chat_id=chat_id,
                 text=caption,
-                reply_markup=product_inline_keyboard(product["id"], admin),
+                reply_markup=product_inline_keyboard(product["id"], admin, in_stock=stock_tons > 0),
             )
             return
         remaining_photos = photos[1:3]
@@ -1138,7 +1145,7 @@ async def send_product(chat_id: int, product, bot: Bot, admin: bool) -> None:
         await bot.send_message(
             chat_id=chat_id,
             text=caption,
-            reply_markup=product_inline_keyboard(product["id"], admin),
+            reply_markup=product_inline_keyboard(product["id"], admin, in_stock=stock_tons > 0),
         )
 
 
@@ -1277,15 +1284,19 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         return web.json_response({"role": role})
 
     async def products_api(request: web.Request) -> web.Response:
+        stock_map = {row["id"]: float(row["quantity_tons"]) for row in db.list_stock_products()}
         products = []
         for product in db.list_products():
             photos = db.get_product_photos(product["id"])
+            stock_tons = stock_map.get(product["id"], 0.0)
             products.append(
                 {
                     "id": product["id"],
                     "name": product["name"],
                     "description": product["description"],
                     "price_per_kg": product["price_per_kg"],
+                    "stock_tons": stock_tons,
+                    "in_stock": stock_tons > 0,
                     "photo_url": await resolve_photo_url(bot, photos[0] if photos else None),
                 }
             )
@@ -1410,9 +1421,60 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                 return web.json_response({"error": "Tanlangan mijoz topilmadi."}, status=404)
             order_user_id = selected_user["id"]
 
-        order_id = db.add_order(order_user_id, product_id, quantity, address, product["price_per_kg"])
+        try:
+            order_id = db.add_order(order_user_id, product_id, quantity, address, product["price_per_kg"])
+        except ValueError:
+            return web.json_response({"error": "Omborda yetarli mahsulot yo'q."}, status=400)
         await notify_admins_new_order(bot, order_id)
         return web.json_response({"ok": True, "order_id": order_id})
+
+    async def warehouse_products_api(request: web.Request) -> web.Response:
+        tg_id = parse_tg_id(request.query.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        items = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "price_per_kg": row["price_per_kg"],
+                "quantity_tons": float(row["quantity_tons"]),
+            }
+            for row in db.list_stock_products()
+        ]
+        return web.json_response({"items": items})
+
+    async def warehouse_receipt_api(request: web.Request) -> web.Response:
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        product_id = int(payload.get("product_id") or 0)
+        quantity_tons = parse_quantity_to_tons(str(payload.get("quantity_tons") or ""))
+        total_amount = float(payload.get("total_amount") or 0)
+        if product_id <= 0 or quantity_tons is None or quantity_tons <= 0:
+            return web.json_response({"error": "Mahsulot va miqdor noto'g'ri."}, status=400)
+        if total_amount < 0:
+            return web.json_response({"error": "Jami summa manfiy bo'lishi mumkin emas."}, status=400)
+        product = db.get_product(product_id)
+        if not product:
+            return web.json_response({"error": "Mahsulot topilmadi."}, status=404)
+        db.add_stock_receipt(product_id, quantity_tons, total_amount, tg_id)
+        return web.json_response({"ok": True})
+
+    async def cashbox_get_api(request: web.Request) -> web.Response:
+        tg_id = parse_tg_id(request.query.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        return web.json_response({"amount": db.get_cashbox_amount()})
+
+    async def cashbox_set_api(request: web.Request) -> web.Response:
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        amount = float(payload.get("amount") or 0)
+        db.set_cashbox_amount(amount)
+        return web.json_response({"ok": True, "amount": amount})
 
     async def stats_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
@@ -1496,6 +1558,10 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/webapp/api/orders", orders_post)
     app.router.add_post("/webapp/api/orders/{order_id}/cancel", order_cancel)
     app.router.add_post("/webapp/api/orders/{order_id}/admin-status", order_admin_status)
+    app.router.add_get("/webapp/api/warehouse/products", warehouse_products_api)
+    app.router.add_post("/webapp/api/warehouse/receipts", warehouse_receipt_api)
+    app.router.add_get("/webapp/api/cashbox", cashbox_get_api)
+    app.router.add_post("/webapp/api/cashbox", cashbox_set_api)
     app.router.add_get("/webapp/api/stats", stats_api)
     app.router.add_get("/webapp/api/reports", reports_api)
 
@@ -1608,9 +1674,17 @@ async def main() -> None:
         )
         await callback.answer()
 
+    @dp.callback_query(F.data == "out_of_stock")
+    async def out_of_stock_info(callback: types.CallbackQuery) -> None:
+        await callback.answer("⛔️ Нет в наличие", show_alert=True)
+
     @dp.callback_query(F.data.startswith("order:"))
     async def order_start(callback: types.CallbackQuery, state: FSMContext) -> None:
         product_id = int(callback.data.split(":", 1)[1])
+        stock_map = {row["id"]: float(row["quantity_tons"]) for row in db.list_stock_products()}
+        if stock_map.get(product_id, 0.0) <= 0:
+            await callback.answer("⛔️ Нет в наличие", show_alert=True)
+            return
         await state.update_data(product_id=product_id)
         await callback.message.answer(
             "⚖️ Necha tonna kerak? (masalan: 2.3 yoki 2,3)\n"
@@ -1704,15 +1778,20 @@ async def main() -> None:
             await message.answer("⚠️ Manzil topilmadi, qayta kiriting.")
             await state.clear()
             return
-        order_id = db.add_order(
-            user["id"],
-            data["product_id"],
-            data["quantity"],
-            address,
-            product["price_per_kg"],
-            latitude=data.get("latitude"),
-            longitude=data.get("longitude"),
-        )
+        try:
+            order_id = db.add_order(
+                user["id"],
+                data["product_id"],
+                data["quantity"],
+                address,
+                product["price_per_kg"],
+                latitude=data.get("latitude"),
+                longitude=data.get("longitude"),
+            )
+        except ValueError:
+            await message.answer("⛔️ Omborda yetarli mahsulot yo'q.", reply_markup=user_keyboard(message.from_user.id))
+            await state.clear()
+            return
         await message.answer(
             "✅ Buyurtma tasdiqlandi!", reply_markup=user_keyboard(message.from_user.id)
         )
@@ -1922,14 +2001,18 @@ async def main() -> None:
         user_id = data.get("user_id")
         if not user_id:
             user_id = db.add_manual_user(data["client_name"], data["client_phone"], callback.from_user.id)
-        order_id = db.add_admin_order(
-            user_id,
-            product["id"],
-            data["quantity"],
-            data["address"],
-            product["price_per_kg"],
-            callback.from_user.id,
-        )
+        try:
+            order_id = db.add_admin_order(
+                user_id,
+                product["id"],
+                data["quantity"],
+                data["address"],
+                product["price_per_kg"],
+                callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("⛔️ Omborda yetarli mahsulot yo'q", show_alert=True)
+            return
         client_tg_id = data.get("client_tg_id")
         if client_tg_id and client_tg_id > 0:
             order_lines = [
