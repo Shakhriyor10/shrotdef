@@ -1245,6 +1245,8 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
 async def resolve_photo_url(bot: Bot, file_id: Optional[str]) -> Optional[str]:
     if not file_id:
         return None
+    if file_id.startswith("data:image") or file_id.startswith("http://") or file_id.startswith("https://"):
+        return file_id
     try:
         file = await bot.get_file(file_id)
     except Exception:
@@ -1301,6 +1303,39 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                 }
             )
         return web.json_response({"products": products})
+
+    async def product_update_api(request: web.Request) -> web.Response:
+        product_id = int(request.match_info.get("product_id", "0") or 0)
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not is_admin(tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        product = db.get_product(product_id)
+        if not product:
+            return web.json_response({"error": "Mahsulot topilmadi."}, status=404)
+
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            return web.json_response({"error": "Nomi bo'sh bo'lishi mumkin emas."}, status=400)
+        price_per_kg = float(payload.get("price_per_kg") or 0)
+        if price_per_kg <= 0:
+            return web.json_response({"error": "Narx 0 dan katta bo'lishi kerak."}, status=400)
+        stock_tons = float(payload.get("stock_tons") or 0)
+        if stock_tons < 0:
+            return web.json_response({"error": "Sklad miqdori manfiy bo'lmaydi."}, status=400)
+
+        db.update_product_name(product_id, name)
+        db.update_product_price(product_id, price_per_kg)
+        db.set_product_stock_tons(product_id, stock_tons)
+
+        photo_data_url = str(payload.get("photo_data_url") or "").strip()
+        if photo_data_url:
+            if not photo_data_url.startswith("data:image"):
+                return web.json_response({"error": "Rasm format xato."}, status=400)
+            db.set_product_photos(product_id, [photo_data_url])
+
+        return web.json_response({"ok": True})
 
     async def clients_search(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
@@ -1796,6 +1831,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_static("/img", path="img", name="img")
     app.router.add_get("/webapp/api/bootstrap", bootstrap)
     app.router.add_get("/webapp/api/products", products_api)
+    app.router.add_post("/webapp/api/products/{product_id}/update", product_update_api)
     app.router.add_get("/webapp/api/clients/search", clients_search)
     app.router.add_get("/webapp/api/orders", orders_get)
     app.router.add_post("/webapp/api/orders", orders_post)

@@ -447,6 +447,21 @@ def get_product_photos(product_id: int) -> list[str]:
     return [row["file_id"] for row in rows]
 
 
+
+def set_product_stock_tons(product_id: int, quantity_tons: float) -> None:
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id) DO UPDATE SET
+                quantity_tons = excluded.quantity_tons,
+                updated_at = excluded.updated_at
+            """,
+            (product_id, quantity_tons, now),
+        )
+
 def add_order(
     user_id: int,
     product_id: int,

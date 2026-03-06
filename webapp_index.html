@@ -363,6 +363,62 @@ function renderMenu(items) {
   `).join('');
 }
 
+async function saveProductChanges(productId) {
+  const name = (document.getElementById(`editName_${productId}`)?.value || '').trim();
+  const price = Number(document.getElementById(`editPrice_${productId}`)?.value || 0);
+  const stock = Number(document.getElementById(`editStock_${productId}`)?.value || 0);
+  const fileInput = document.getElementById(`editPhoto_${productId}`);
+
+  let photoDataUrl = '';
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    photoDataUrl = await fileToDataUrl(fileInput.files[0]);
+  }
+
+  try {
+    await api(`/webapp/api/products/${productId}/update`, {
+      method:'POST',
+      body: JSON.stringify({
+        tg_id: userId,
+        name,
+        price_per_kg: price,
+        stock_tons: stock,
+        photo_data_url: photoDataUrl || undefined,
+      })
+    });
+    tg.showAlert('✅ Mahsulot yangilandi');
+    await loadManageProducts();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+function toggleProductEdit(productId) {
+  document.getElementById(`editBlock_${productId}`)?.classList.toggle('hidden');
+}
+
+async function loadManageProducts() {
+  const data = await api(`/webapp/api/products?tg_id=${userId}`);
+  const cards = (data.products || []).map((p) => `
+    <div class="card">
+      ${p.photo_url ? `<img src="${p.photo_url}" alt="${p.name}">` : ''}
+      <div class="card-body">
+        <div><b>${p.name}</b></div>
+        <div class="muted">Narx: ${formatMoney(p.price_per_kg)} so'm/kg</div>
+        <div class="muted">Sklad: ${Number(p.stock_tons || 0).toLocaleString('ru-RU')} tonna</div>
+        <button class="buy-btn" onclick="toggleProductEdit(${p.id})">O'zgartirish</button>
+        <div id="editBlock_${p.id}" class="hidden">
+          <input id="editName_${p.id}" value="${escapeHtml(p.name || '')}" placeholder="Nomi" />
+          <input id="editPrice_${p.id}" type="number" step="0.01" value="${Number(p.price_per_kg || 0)}" placeholder="Narx (1kg)" />
+          <input id="editStock_${p.id}" type="number" step="0.001" value="${Number(p.stock_tons || 0)}" placeholder="Sklad (tonna)" />
+          <input id="editPhoto_${p.id}" type="file" accept="image/*" />
+          <button class="buy-btn" onclick="saveProductChanges(${p.id})">Saqlash</button>
+        </div>
+      </div>
+    </div>
+  `).join('') || "<div class='panel'>Mahsulotlar yo'q.</div>";
+  showSection(cards);
+}
+
 async function loadProducts() {
   const data = await api(`/webapp/api/products?tg_id=${userId}`);
   if (!data.products.length) return showSection('<div class="panel">Mahsulotlar yoʻq.</div>');
@@ -396,6 +452,15 @@ function formatDateTime(value) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+  });
+}
+
+async function fileToDataUrl(file) {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Rasmni o'qib bo'lmadi'));
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1177,7 +1242,7 @@ async function init() {
 
     if (role === 'admin') {
       renderMenu([
-        {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
+        {label:'Mahsulotlar', icon:ICONS.products, action:'loadManageProducts()'},
         {label:'Aloqa', icon:ICONS.contact, action:'showContact()'},
         {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
         {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
