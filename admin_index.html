@@ -73,6 +73,20 @@
       gap: 10px;
     }
 
+    .sidebar-toggle {
+      border: 1px solid var(--border-color);
+      background: var(--card-bg);
+      color: var(--text-color);
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      padding: 0;
+    }
+
     .brand-logo {
       height: 44px;
       width: auto;
@@ -100,6 +114,7 @@
     .sidebar {
       border-right: 1px solid var(--border-color);
       padding-right: 14px;
+      transition: all .2s ease;
     }
 
     .main-area {
@@ -129,6 +144,25 @@
       min-height: 58px;
       font-size: 16px;
       padding: 14px;
+      transition: all .2s ease;
+    }
+
+    body.sidebar-collapsed .container {
+      grid-template-columns: 86px minmax(0, 1fr);
+    }
+
+    body.sidebar-collapsed .sidebar {
+      padding-right: 8px;
+    }
+
+    body.sidebar-collapsed .menu-btn {
+      justify-content: center;
+      padding: 12px 8px;
+      min-height: 50px;
+    }
+
+    body.sidebar-collapsed .menu-btn span:last-child {
+      display: none;
     }
 
     .icon {
@@ -465,7 +499,10 @@
   </div>
   <div class="app-shell">
     <header>
-      <div class="brand"><img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span></div>
+      <div class="brand">
+        <button class="sidebar-toggle" onclick="toggleSidebar()" title="Sidebarni yopish/ochish">☰</button>
+        <img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span>
+      </div>
       <div class="cash-top">
         <span>Kassa: <span id="topCashAmount">...</span> so'm</span>
         <button class="icon-btn" onclick="openCashEditModal()" title="Kassani tahrirlash">✎</button>
@@ -507,6 +544,17 @@ let reportsSearchQuery = '';
 let selectedClient = null;
 let clientSearchSeq = 0;
 let editingProductId = null;
+
+function applySidebarState() {
+  const collapsed = localStorage.getItem('admin_sidebar_collapsed') === '1';
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+}
+
+function toggleSidebar() {
+  const collapsed = !document.body.classList.contains('sidebar-collapsed');
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  localStorage.setItem('admin_sidebar_collapsed', collapsed ? '1' : '0');
+}
 
 function applyTheme() {
   const root = document.documentElement;
@@ -1782,6 +1830,7 @@ async function initAfterLogin() {
 }
 
 async function init() {
+  applySidebarState();
   const ok = await restoreSession();
   if (ok) {
     await initAfterLogin();
