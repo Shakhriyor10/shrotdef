@@ -264,6 +264,48 @@
       background: color-mix(in srgb, var(--bg-color) 70%, var(--card-bg));
       border-top: 2px solid var(--border-color);
     }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .status-open {
+      color: #92400e;
+      background: #fef3c7;
+      border-color: #fcd34d;
+    }
+    .status-closed {
+      color: #166534;
+      background: #dcfce7;
+      border-color: #86efac;
+    }
+    .status-canceled {
+      color: #991b1b;
+      background: #fee2e2;
+      border-color: #fca5a5;
+    }
+    .status-unknown {
+      color: #374151;
+      background: #e5e7eb;
+      border-color: #d1d5db;
+    }
+    .table-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .mini-btn {
+      width: auto;
+      margin-top: 0;
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 8px;
+      font-weight: 700;
+    }
     .suggestions {
       margin-top: 6px;
       border: 1px solid var(--border-color);
@@ -919,30 +961,47 @@ function renderOrdersList() {
     return haystack.includes(query);
   });
 
-  const cards = filtered.map(o => {
-    const meta = statusMeta(o.status);
-    const statusLabel = o.status_label || meta.label;
+  const statusClass = (status) => {
+    if (status === 'open') return 'status-open';
+    if (status === 'closed') return 'status-closed';
+    if (status === 'canceled') return 'status-canceled';
+    return 'status-unknown';
+  };
+
+  const rows = filtered.map(o => {
+    const statusLabel = o.status_label || statusMeta(o.status).label;
+    const actionButtons = [];
+
+    if (o.can_admin_manage) {
+      actionButtons.push(`<button class="buy-btn mini-btn" onclick="adminUpdateOrderStatus(${o.id}, 'close')">Qabul qilish</button>`);
+      actionButtons.push(`<button class="secondary-btn mini-btn" onclick="adminUpdateOrderStatus(${o.id}, 'cancel')">Bekor qilish</button>`);
+    }
+
+    if (role === 'admin' && o.status === 'closed') {
+      actionButtons.push(`<button class="buy-btn mini-btn" onclick="addPaymentPrompt(${o.id})">To'lov qo'shish</button>`);
+      actionButtons.push(`<button class="secondary-btn mini-btn" onclick="deletePaymentPrompt(${o.id})">To'lov o'chirish</button>`);
+    }
+
+    if (o.can_cancel) {
+      actionButtons.push(`<button class="secondary-btn mini-btn" onclick="cancelOrder(${o.id})">Bekor qilish</button>`);
+    }
+
     return `
-      <div class="panel">
-        <div><b>Buyurtma #${o.id}</b></div>
-        ${o.client_name ? `<div>👤 Mijoz: <b>${o.client_name}</b></div>` : ''}
-        ${o.client_phone ? `<div>📞 Telefon: <b>${o.client_phone}</b></div>` : ''}
-        <div>📦 Mahsulot: <b>${o.product_name}</b></div>
-        <div>📅 Sana: <b>${formatDateTime(o.created_at)}</b></div>
-        <div>⚖️ Miqdor: <b>${o.quantity}</b></div>
-        <div>📍 Manzil: <b>${o.address}</b></div>
-        <div>💵 Jami summa: <b>${o.total_amount}</b></div>
-        <div>✅ To'langan: <b>${o.paid_amount || '0'}</b> so'm</div>
-        <div>🧾 Qoldiq: <b>${o.remaining_amount || '0'}</b> so'm</div>
-        <div>🔢 To'lovlar soni: <b>${o.payments_count || 0}</b></div>
-        <div style="margin-top:6px;color:${meta.color};font-weight:700;">Holat: ${statusLabel}</div>
-        ${o.can_admin_manage ? `
-          <button class="buy-btn" onclick="adminUpdateOrderStatus(${o.id}, 'close')">Qabul qilish</button>
-          <button class="secondary-btn" onclick="adminUpdateOrderStatus(${o.id}, 'cancel')">Bekor qilish</button>
-        ` : ''}
-        ${(role === 'admin' && o.status === 'closed') ? `<button class="buy-btn" onclick="managePayments(${o.id})">To'lov qo'shish / o'chirish</button>` : ''}
-        ${o.can_cancel ? `<button class="secondary-btn" onclick="cancelOrder(${o.id})">Buyurtmani bekor qilish</button>` : ''}
-      </div>
+      <tr>
+        <td>#${o.id}</td>
+        <td>${escapeHtml(o.client_name || '—')}</td>
+        <td>${escapeHtml(o.client_phone || '—')}</td>
+        <td>${escapeHtml(o.product_name || '')}</td>
+        <td>${escapeHtml(o.quantity || '')}</td>
+        <td>${formatDateTime(o.created_at)}</td>
+        <td>${escapeHtml(o.address || '')}</td>
+        <td>${formatMoney(parseReportNumber(o.total_amount || 0))} so'm</td>
+        <td>${formatMoney(parseReportNumber(o.paid_amount || 0))} so'm</td>
+        <td>${formatMoney(parseReportNumber(o.remaining_amount || 0))} so'm</td>
+        <td>${o.payments_count || 0}</td>
+        <td><span class="status-badge ${statusClass(o.status)}">${escapeHtml(statusLabel)}</span></td>
+        <td><div class="table-actions">${actionButtons.join('')}</div></td>
+      </tr>
     `;
   }).join('');
 
@@ -958,7 +1017,33 @@ function renderOrdersList() {
         </div>
       </div>
     ` : '';
-    listNode.innerHTML = (cards || '<div class="panel">Buyurtmalar yoʻq.</div>') + pagerHtml;
+    const tableHtml = filtered.length ? `
+      <div class="table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Buyurtma ID</th>
+              <th>Mijoz</th>
+              <th>Telefon</th>
+              <th>Mahsulot</th>
+              <th>Miqdor</th>
+              <th>Sana</th>
+              <th>Manzil</th>
+              <th>Jami summa</th>
+              <th>To'langan</th>
+              <th>Qoldiq</th>
+              <th>To'lovlar</th>
+              <th>Status</th>
+              <th>Amal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    ` : '<div class="panel">Buyurtmalar yoʻq.</div>';
+    listNode.innerHTML = tableHtml + pagerHtml;
   }
 }
 
@@ -977,28 +1062,27 @@ function onOrdersSearchInput(value) {
   renderOrdersList();
 }
 
-async function managePayments(orderId) {
+async function addPaymentPrompt(orderId) {
   const amountRaw = window.prompt("To'lov summasini kiriting (so'm). Bekor uchun bo'sh qoldiring:");
-  if (amountRaw !== null && String(amountRaw).trim() !== '') {
-    const amount = Number(String(amountRaw).replace(/\s/g, '').replace(',', '.'));
-    if (!Number.isFinite(amount) || amount <= 0) {
-      tg.showAlert("To'g'ri summa kiriting.");
-      return;
-    }
-    try {
-      await api(`/webapp/api/orders/${orderId}/payments`, {
-        method: 'POST',
-        body: JSON.stringify({tg_id: userId, amount})
-      });
-      tg.showAlert("✅ To'lov qo'shildi.");
-      await loadOrders();
-      return;
-    } catch (e) {
-      tg.showAlert('Xato: ' + e.message);
-      return;
-    }
+  if (amountRaw === null || String(amountRaw).trim() === '') return;
+  const amount = Number(String(amountRaw).replace(/\s/g, '').replace(',', '.'));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    tg.showAlert("To'g'ri summa kiriting.");
+    return;
   }
+  try {
+    await api(`/webapp/api/orders/${orderId}/payments`, {
+      method: 'POST',
+      body: JSON.stringify({tg_id: userId, amount})
+    });
+    tg.showAlert("✅ To'lov qo'shildi.");
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
 
+async function deletePaymentPrompt(orderId) {
   try {
     const data = await api(`/webapp/api/orders/${orderId}/payments?tg_id=${userId}`);
     const payments = data.payments || [];
