@@ -1815,37 +1815,19 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             return web.json_response({"error": "Forbidden"}, status=403)
 
         period = str(payload.get("period") or "").strip() or datetime.now().strftime("%Y-%m-%d")
-        rows = payload.get("rows") or []
-        if not isinstance(rows, list) or not rows:
-            return web.json_response({"error": "Eksport uchun ma'lumot yo'q."}, status=400)
+        html_content = str(payload.get("html") or "")
+        if not html_content.strip():
+            return web.json_response({"error": "Eksport uchun HTML ma'lumot yo'q."}, status=400)
 
-        lines = [f"Davr: {period}", ""]
-        lines.append("Mijoz | ID | Mahsulot | Tonna | Jami | To'langan | To'lanmagan")
-        for row in rows[:300]:
-            client = str(row.get("client") or "")
-            order_id = str(row.get("order_id") or "")
-            product = str(row.get("product") or "")
-            tons = str(row.get("tons") or "")
-            amount = str(row.get("amount") or "")
-            paid = str(row.get("paid_amount") or "")
-            unpaid = str(row.get("unpaid_amount") or "")
-            lines.append(f"{client} | {order_id} | {product} | {tons} | {amount} | {paid} | {unpaid}")
+        file_name = str(payload.get("file_name") or "").strip() or f"hisobot_{period}.html"
+        file_name = file_name.replace(" ", "_").replace(":", "-")
+        if not file_name.lower().endswith(".html"):
+            file_name += ".html"
 
-        total_tons = float(payload.get("total_tons") or 0)
-        total_amount = float(payload.get("total_amount") or 0)
-        total_paid = float(payload.get("total_paid") or 0)
-        total_unpaid = float(payload.get("total_unpaid") or 0)
-        lines.append("")
-        lines.append(
-            f"Jami: tonna={format_tons(total_tons)}, summa={format_money_with_commas(total_amount)}, to'langan={format_money_with_commas(total_paid)}, to'lanmagan={format_money_with_commas(total_unpaid)}"
-        )
-
-        pdf_bytes = build_simple_report_pdf("Hisobot", lines)
-        file_name = f"hisobot_{period}.pdf".replace(" ", "_").replace(":", "-")
         await bot.send_document(
             chat_id=tg_id,
-            document=BufferedInputFile(pdf_bytes, filename=file_name),
-            caption=f"📄 Hisobot PDF ({period})",
+            document=BufferedInputFile(html_content.encode("utf-8"), filename=file_name),
+            caption=f"📄 Hisobot HTML ({period})",
         )
         return web.json_response({"ok": True})
 

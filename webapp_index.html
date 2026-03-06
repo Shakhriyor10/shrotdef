@@ -1220,14 +1220,11 @@ function exportReportsPdf() {
     body: JSON.stringify({
       tg_id: userId,
       period: document.getElementById('reportsResult')?.dataset?.reportPeriod || '',
-      rows: filteredEntries,
-      total_tons: totalTons,
-      total_amount: totalAmount,
-      total_paid: totalPaid,
-      total_unpaid: totalUnpaid,
+      file_name: fileName,
+      html,
     })
   })
-    .then(() => tg.showAlert("✅ PDF bot orqali ham yuborildi, va fayl ham yuklab olindi."))
+    .then(() => tg.showAlert("✅ HTML fayl bot orqali ham yuborildi, va fayl ham yuklab olindi."))
     .catch((e) => tg.showAlert("⚠️ Fayl yuklab olindi, lekin botga yuborishda xato: " + e.message));
 }
 
