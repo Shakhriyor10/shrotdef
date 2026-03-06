@@ -1123,13 +1123,100 @@ function formatReportTons(value) {
   return value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
-function renderReportsResult(data) {
+function getFilteredReportEntries() {
   const normalizedQuery = reportsSearchQuery.toLowerCase();
-  const filteredEntries = reportsEntriesCache.filter((entry) => {
+  return reportsEntriesCache.filter((entry) => {
     if (!normalizedQuery) return true;
     const haystack = `${entry.client} ${entry.product}`.toLowerCase();
     return haystack.includes(normalizedQuery);
   });
+}
+
+function exportReportsPdf() {
+  const filteredEntries = getFilteredReportEntries();
+  if (!filteredEntries.length) {
+    tg.showAlert("Eksport uchun ma'lumot yo'q.");
+    return;
+  }
+
+  const totalTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
+  const totalAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
+  const totalPaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.paid_amount), 0);
+  const totalUnpaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.unpaid_amount), 0);
+
+  const rowsHtml = filteredEntries.map((entry, idx) => `
+    <tr>
+      <td>${idx + 1}. ${escapeHtml(entry.client)}</td>
+      <td>${entry.order_id}</td>
+      <td>${escapeHtml(entry.product)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.tons)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.amount)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.paid_amount)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.unpaid_amount)}</td>
+    </tr>
+  `).join('');
+
+  const period = escapeHtml(document.getElementById('reportsResult')?.dataset?.reportPeriod || '');
+  const html = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Hisobot PDF</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; }
+          h2 { margin: 0 0 8px; }
+          .meta { margin-bottom: 14px; color: #444; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border: 1px solid #999; padding: 6px 8px; }
+          th { background: #f2f2f2; }
+          tfoot td { font-weight: 700; background: #fafafa; }
+        </style>
+      </head>
+      <body>
+        <h2>Hisobot</h2>
+        <div class="meta">Davr: ${period}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Mijoz</th>
+              <th>Buyurtma ID</th>
+              <th>Mahsulot</th>
+              <th>Tonna</th>
+              <th>Jami summa</th>
+              <th>To'langan</th>
+              <th>To'lanmagan</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3">Jami</td>
+              <td style="text-align:right;">${formatReportTons(totalTons)}</td>
+              <td style="text-align:right;">${formatMoney(totalAmount)}</td>
+              <td style="text-align:right;">${formatMoney(totalPaid)}</td>
+              <td style="text-align:right;">${formatMoney(totalUnpaid)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </body>
+    </html>
+  `;
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    tg.showAlert("Brauzer oynani ochmadi. Popup blockni o'chiring.");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+function renderReportsResult(data) {
+  const filteredEntries = getFilteredReportEntries();
 
   const filteredTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
   const filteredAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
@@ -1188,6 +1275,7 @@ async function applyReportsFilter() {
     const reportsNode = document.getElementById('reportsResult');
     if (reportsNode) {
       reportsNode.dataset.reportMeta = JSON.stringify(data);
+      reportsNode.dataset.reportPeriod = String(data.period || '');
     }
     renderReportsResult(data);
   } catch (e) {
@@ -1205,6 +1293,7 @@ async function loadReports() {
       <input id="reportStartDate" type="date" value="${startDate}" />
       <input id="reportEndDate" type="date" value="${endDate}" />
       <button class="buy-btn" onclick="applyReportsFilter()">Hisobotni yangilash</button>
+      <button class="secondary-btn" onclick="exportReportsPdf()">PDF eksport</button>
       <input id="reportsSearch" placeholder="Qidirish: mijoz ismi yoki telefon" oninput="onReportsSearchInput(this.value)" />
     </div>
     <div id="reportsResult"></div>
