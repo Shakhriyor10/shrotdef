@@ -1007,7 +1007,7 @@ let ordersSearchQuery = '';
 let ordersStatusFilter = 'all';
 let ordersPaymentFilter = 'all';
 let ordersPage = 1;
-let ordersPageSize = 50;
+let ordersPageSize = 15;
 let ordersPagination = null;
 
 function renderOrdersList() {
@@ -1070,7 +1070,7 @@ function renderOrdersList() {
               : ''}
           </span>
         </td>
-        <td>${formatMoney(parseReportNumber(o.total_amount || 0))} so'm</td>
+        <td>${formatMoney(Number(o.total_amount_raw ?? parseReportNumber(o.total_amount || 0)))} so'm</td>
         <td>${formatMoney(parseReportNumber(o.paid_amount || 0))} so'm</td>
         <td>${formatMoney(parseReportNumber(o.remaining_amount || 0))} so'm</td>
         <td>${o.payments_count || 0}</td>

@@ -1483,6 +1483,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                         row["quantity"],
                         price_per_kg,
                     ),
+                    "total_amount_raw": total_amount_raw,
                     "paid_amount": format_money_with_commas(paid_amount_raw),
                     "paid_amount_raw": paid_amount_raw,
                     "remaining_amount": format_money_with_commas(remaining_amount_raw),
