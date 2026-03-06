@@ -459,7 +459,7 @@ async function fileToDataUrl(file) {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Rasmni o'qib bo'lmadi'));
+    reader.onerror = () => reject(new Error("Rasmni o'qib bo'lmadi"));
     reader.readAsDataURL(file);
   });
 }
@@ -1235,35 +1235,44 @@ function showContact() {
   `);
 }
 
+function renderRoleMenu(currentRole) {
+  if (currentRole === 'admin') {
+    renderMenu([
+      {label:'Mahsulotlar', icon:ICONS.products, action:'loadManageProducts()'},
+      {label:'Aloqa', icon:ICONS.contact, action:'showContact()'},
+      {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
+      {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
+      {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
+      {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
+      {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
+      {label:'Kassa', icon:ICONS.cash, action:'loadCashbox()'}
+    ]);
+  } else {
+    renderMenu([
+      {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
+      {label:'Mening buyurtmalarim', icon:ICONS.myOrders, action:'loadOrders()'},
+      {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
+    ]);
+  }
+}
+
 async function init() {
+  renderRoleMenu('user');
+  showMainMenu();
+
   try {
     const boot = await api(`/webapp/api/bootstrap?tg_id=${userId}`);
     role = boot.role || 'user';
-
-    if (role === 'admin') {
-      renderMenu([
-        {label:'Mahsulotlar', icon:ICONS.products, action:'loadManageProducts()'},
-        {label:'Aloqa', icon:ICONS.contact, action:'showContact()'},
-        {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
-        {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
-        {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
-        {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
-        {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
-        {label:'Kassa', icon:ICONS.cash, action:'loadCashbox()'}
-      ]);
-    } else {
-      renderMenu([
-        {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
-        {label:'Mening buyurtmalarim', icon:ICONS.myOrders, action:'loadOrders()'},
-        {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
-      ]);
-    }
-
+    renderRoleMenu(role);
     showMainMenu();
   } catch (e) {
-    showFatalError(e?.message || String(e));
+    role = 'user';
+    renderRoleMenu(role);
+    showMainMenu();
+    tg.showAlert("⚠️ Server bilan aloqa bo'lmadi. Asosiy menyu ochildi.");
   }
 }
+
 
 init();
 </script>
