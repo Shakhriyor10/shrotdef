@@ -306,6 +306,26 @@
       border-radius: 8px;
       font-weight: 700;
     }
+    .addr-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 180px;
+    }
+    .eye-btn {
+      border: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-color);
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1;
+    }
     .suggestions {
       margin-top: 6px;
       border: 1px solid var(--border-color);
@@ -434,6 +454,13 @@
       <input id="productEditPhoto" type="file" accept="image/*" />
       <button class="buy-btn" onclick="saveProductEditModal()">Saqlash</button>
       <button class="secondary-btn" onclick="closeProductEditModal()">Bekor qilish</button>
+    </div>
+  </div>
+  <div id="addressModal" class="cash-modal" onclick="closeAddressModal(event)">
+    <div class="panel cash-modal-card" onclick="event.stopPropagation()">
+      <h3>To'liq manzil</h3>
+      <div id="addressModalText" class="summary" style="margin-top:0;white-space:normal;word-break:break-word;"></div>
+      <button class="secondary-btn" onclick="closeAddressModal()">Yopish</button>
     </div>
   </div>
   <div class="app-shell">
@@ -728,6 +755,25 @@ function formatDateTime(value) {
   });
 }
 
+function truncateAddress(value, limit = 7) {
+  const text = String(value || '');
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}...`;
+}
+
+function openAddressModal(address) {
+  const textNode = document.getElementById('addressModalText');
+  if (textNode) textNode.textContent = String(address || 'Manzil kiritilmagan.');
+  const modal = document.getElementById('addressModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeAddressModal(event) {
+  if (event && event.target && event.target.id !== 'addressModal') return;
+  const modal = document.getElementById('addressModal');
+  if (modal) modal.style.display = 'none';
+}
+
 async function fileToDataUrl(file) {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -994,7 +1040,12 @@ function renderOrdersList() {
         <td>${escapeHtml(o.product_name || '')}</td>
         <td>${escapeHtml(o.quantity || '')}</td>
         <td>${formatDateTime(o.created_at)}</td>
-        <td>${escapeHtml(o.address || '')}</td>
+        <td>
+          <span class="addr-cell">
+            <span>${escapeHtml(truncateAddress(o.address || '', 7))}</span>
+            <button class="eye-btn" title="To'liq manzil" onclick="openAddressModal(${JSON.stringify(String(o.address || ''))})">👁</button>
+          </span>
+        </td>
         <td>${formatMoney(parseReportNumber(o.total_amount || 0))} so'm</td>
         <td>${formatMoney(parseReportNumber(o.paid_amount || 0))} so'm</td>
         <td>${formatMoney(parseReportNumber(o.remaining_amount || 0))} so'm</td>
