@@ -145,6 +145,18 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS warehouse_receipt_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                receipt_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                created_by INTEGER,
+                FOREIGN KEY(receipt_id) REFERENCES warehouse_receipts(id) ON DELETE CASCADE
+            )
+            """
+        )
         try:
             conn.execute(
                 "ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'open'"
@@ -770,23 +782,123 @@ def add_stock_receipt(product_id: int, quantity_tons: float, total_amount: float
             """,
             (product_id, quantity_tons, now),
         )
+        return int(cur.lastrowid)
+
+
+def list_warehouse_receipts(limit: int = 30) -> Iterable[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                wr.id,
+                wr.product_id,
+                wr.quantity_tons,
+                wr.total_amount,
+                wr.created_at,
+                wr.created_by,
+                p.name AS product_name,
+                COALESCE(payments.paid_amount, 0) AS paid_amount,
+                COALESCE(payments.payments_count, 0) AS payments_count
+            FROM warehouse_receipts wr
+            JOIN products p ON p.id = wr.product_id
+            LEFT JOIN (
+                SELECT receipt_id, SUM(amount) AS paid_amount, COUNT(*) AS payments_count
+                FROM warehouse_receipt_payments
+                GROUP BY receipt_id
+            ) AS payments ON payments.receipt_id = wr.id
+            ORDER BY datetime(wr.created_at) DESC, wr.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def add_warehouse_receipt_payment(receipt_id: int, amount: float, created_by: Optional[int]) -> int:
+    if amount <= 0:
+        raise ValueError("Amount must be > 0")
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        receipt_row = conn.execute(
+            "SELECT id, total_amount FROM warehouse_receipts WHERE id = ?",
+            (receipt_id,),
+        ).fetchone()
+        if not receipt_row:
+            raise LookupError("Receipt not found")
+        paid_row = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS paid FROM warehouse_receipt_payments WHERE receipt_id = ?",
+            (receipt_id,),
+        ).fetchone()
+        paid = float(paid_row["paid"] if paid_row else 0)
+        remaining = float(receipt_row["total_amount"] or 0) - paid
+        if amount - remaining > 1e-9:
+            raise ValueError("Payment exceeds remaining amount")
+
+        cur = conn.execute(
+            """
+            INSERT INTO warehouse_receipt_payments (receipt_id, amount, created_at, created_by)
+            VALUES (?, ?, ?, ?)
+            """,
+            (receipt_id, amount, now, created_by),
+        )
+        payment_id = int(cur.lastrowid)
         conn.execute(
             "UPDATE cashbox SET amount = amount - ?, updated_at = ? WHERE id = 1",
-            (total_amount, now),
+            (amount, now),
         )
-        receipt_id = int(cur.lastrowid)
         _add_cashbox_operation(
             conn,
             operation_type="expense",
-            amount=total_amount,
-            reason="warehouse_receipt",
-            reference_type="warehouse_receipt",
-            reference_id=receipt_id,
+            amount=amount,
+            reason="warehouse_receipt_payment",
+            reference_type="warehouse_receipt_payment",
+            reference_id=payment_id,
             created_by=created_by,
-            note="Sklad uchun xarid",
+            note=f"Sklad prihodi #{receipt_id} uchun to'lov",
             created_at=now,
         )
-        return receipt_id
+        return payment_id
+
+
+def list_warehouse_receipt_payments(receipt_id: int) -> Iterable[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, receipt_id, amount, created_at, created_by
+            FROM warehouse_receipt_payments
+            WHERE receipt_id = ?
+            ORDER BY datetime(created_at) DESC, id DESC
+            """,
+            (receipt_id,),
+        ).fetchall()
+
+
+def delete_warehouse_receipt_payment(receipt_id: int, payment_id: int, deleted_by: Optional[int]) -> bool:
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, amount FROM warehouse_receipt_payments WHERE id = ? AND receipt_id = ?",
+            (payment_id, receipt_id),
+        ).fetchone()
+        if not row:
+            return False
+        amount = float(row["amount"])
+        conn.execute("DELETE FROM warehouse_receipt_payments WHERE id = ?", (payment_id,))
+        conn.execute(
+            "UPDATE cashbox SET amount = amount + ?, updated_at = ? WHERE id = 1",
+            (amount, now),
+        )
+        _add_cashbox_operation(
+            conn,
+            operation_type="income",
+            amount=amount,
+            reason="warehouse_receipt_payment_revert",
+            reference_type="warehouse_receipt_payment",
+            reference_id=payment_id,
+            created_by=deleted_by,
+            note=f"Sklad prihodi #{receipt_id} to'lovi bekor qilindi",
+            created_at=now,
+        )
+        return True
 
 
 def get_cashbox_amount() -> float:

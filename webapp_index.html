@@ -784,6 +784,76 @@ async function createWarehouseReceipt() {
   }
 }
 
+
+async function manageWarehouseReceiptPayments(receiptId) {
+  const amountRaw = window.prompt("Prihod uchun to'lov summasini kiriting (so'm). O'chirish uchun bo'sh qoldiring:");
+  if (amountRaw !== null && String(amountRaw).trim() !== '') {
+    const amount = Number(String(amountRaw).replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      tg.showAlert("To'g'ri summa kiriting.");
+      return;
+    }
+    try {
+      await api(`/webapp/api/warehouse/receipts/${receiptId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify({tg_id: userId, amount})
+      });
+      tg.showAlert("✅ Prihod to'lovi qo'shildi.");
+      await loadWarehouse();
+      return;
+    } catch (e) {
+      tg.showAlert('Xato: ' + e.message);
+      return;
+    }
+  }
+
+  try {
+    const data = await api(`/webapp/api/warehouse/receipts/${receiptId}/payments?tg_id=${userId}`);
+    const payments = data.payments || [];
+    if (!payments.length) {
+      tg.showAlert("Bu prihod uchun to'lovlar yo'q.");
+      return;
+    }
+    const msg = payments
+      .slice(0, 10)
+      .map((p, i) => `${i + 1}) #${p.id} — ${p.amount_label} so'm`)
+      .join('\n');
+    const chosen = window.prompt(`O'chirish uchun to'lov ID kiriting:\n${msg}`);
+    if (!chosen) return;
+    const paymentId = Number(chosen);
+    if (!paymentId) {
+      tg.showAlert("ID noto'g'ri.");
+      return;
+    }
+    await api(`/webapp/api/warehouse/receipts/${receiptId}/payments/${paymentId}/delete`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert("✅ Prihod to'lovi o'chirildi.");
+    await loadWarehouse();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function renderWarehouseReceiptsView() {
+  const data = await api(`/webapp/api/warehouse/receipts?tg_id=${userId}`);
+  const cards = (data.receipts || []).map(item => `
+    <div class="panel">
+      <b>Prihod #${item.id}</b><br>
+      Mahsulot: <b>${item.product_name}</b><br>
+      Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
+      Jami summa: <b>${item.total_amount_label} so'm</b><br>
+      To'langan: <b>${item.paid_amount_label} so'm</b><br>
+      Qoldiq: <b>${item.remaining_amount_label} so'm</b><br>
+      To'lovlar soni: <b>${item.payments_count || 0}</b><br>
+      <button class="buy-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish / o'chirish</button>
+    </div>
+  `).join('') || "<div class='panel'>Prihodlar yo'q.</div>";
+  const root = document.getElementById('warehouseReceipts');
+  if (root) root.innerHTML = cards;
+}
+
 async function loadWarehouse() {
   const productsData = await api(`/webapp/api/products?tg_id=${userId}`);
   const options = (productsData.products || []).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
@@ -799,8 +869,11 @@ async function loadWarehouse() {
       </div>
     </div>
     <div id="warehouseResult"></div>
+    <div class="panel"><b>Prihodlar va to'lovlar</b></div>
+    <div id="warehouseReceipts"></div>
   `);
   await renderWarehouseProductsView();
+  await renderWarehouseReceiptsView();
 }
 
 async function loadCashbox() {
