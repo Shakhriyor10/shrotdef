@@ -1242,7 +1242,7 @@ def delete_order(order_id: int) -> bool:
         return cur.rowcount > 0
 
 
-def list_orders_for_user(user_id: int) -> Iterable[sqlite3.Row]:
+def list_orders_for_user(user_id: int, limit: Optional[int] = None, offset: int = 0) -> Iterable[sqlite3.Row]:
     query = """
         SELECT
             orders.id,
@@ -1268,9 +1268,22 @@ def list_orders_for_user(user_id: int) -> Iterable[sqlite3.Row]:
         WHERE orders.user_id = ?
         ORDER BY orders.created_at DESC
     """
+    params: list[object] = [user_id]
+    if limit is not None:
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
     with get_connection() as conn:
-        return conn.execute(query, (user_id,)).fetchall()
+        return conn.execute(query, params).fetchall()
 
+
+
+def count_orders_for_user(user_id: int) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM orders WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return int(row["total"] if row else 0)
 
 def count_users() -> int:
     with get_connection() as conn:

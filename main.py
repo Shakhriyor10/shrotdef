@@ -1326,9 +1326,16 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         user = db.get_user_by_tg_id(tg_id)
         if not user:
-            return web.json_response({"orders": []})
+            return web.json_response({"orders": [], "pagination": {"page": 1, "page_size": 10, "total": 0, "total_pages": 1, "has_prev": False, "has_next": False}})
+
+        page = max(int(request.query.get("page") or 1), 1)
+        page_size = int(request.query.get("page_size") or 10)
+        page_size = min(max(page_size, 1), 50)
+        offset = (page - 1) * page_size
+
         admin_view = is_admin(tg_id)
-        rows = db.list_orders_with_details(limit=50) if admin_view else db.list_orders_for_user(user["id"])
+        total = db.count_orders() if admin_view else db.count_orders_for_user(user["id"])
+        rows = db.list_orders_with_details(limit=page_size, offset=offset) if admin_view else db.list_orders_for_user(user["id"], limit=page_size, offset=offset)
         orders = []
         for row in rows:
             price_per_kg = row["order_price_per_kg"] or row["product_price_per_kg"]
@@ -1362,7 +1369,20 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                     "can_admin_manage": (admin_view and row["status"] == "open"),
                 }
             )
-        return web.json_response({"orders": orders})
+        total_pages = max((total + page_size - 1) // page_size, 1)
+        return web.json_response(
+            {
+                "orders": orders,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": total_pages,
+                    "has_prev": page > 1,
+                    "has_next": page < total_pages,
+                },
+            }
+        )
 
     async def order_cancel(request: web.Request) -> web.Response:
         order_id = int(request.match_info.get("order_id", "0") or 0)

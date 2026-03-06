@@ -587,6 +587,9 @@ let ordersCache = [];
 let ordersSearchQuery = '';
 let ordersStatusFilter = 'all';
 let ordersPaymentFilter = 'all';
+let ordersPage = 1;
+let ordersPageSize = 10;
+let ordersPagination = null;
 
 function renderOrdersList() {
   const filtered = ordersCache.filter((order) => {
@@ -635,7 +638,17 @@ function renderOrdersList() {
 
   const listNode = document.getElementById('ordersList');
   if (listNode) {
-    listNode.innerHTML = cards || '<div class="panel">Buyurtmalar yoʻq.</div>';
+    const pagination = ordersPagination || {};
+    const pagerHtml = (pagination.total_pages || 1) > 1 ? `
+      <div class="panel">
+        <div>Sahifa: ${pagination.page || 1} / ${pagination.total_pages || 1} (jami: ${pagination.total || 0})</div>
+        <div class="pagination-row">
+          <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeOrdersPage(-1)">⬅️ Oldingi</button>
+          <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeOrdersPage(1)">Keyingi ➡️</button>
+        </div>
+      </div>
+    ` : '';
+    listNode.innerHTML = (cards || '<div class="panel">Buyurtmalar yoʻq.</div>') + pagerHtml;
   }
 }
 
@@ -705,6 +718,11 @@ async function managePayments(orderId) {
   }
 }
 
+function changeOrdersPage(delta) {
+  ordersPage = Math.max(1, ordersPage + Number(delta || 0));
+  loadOrders().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
 async function adminUpdateOrderStatus(orderId, action) {
   const title = action === 'close' ? 'qabul qilishni' : 'bekor qilishni';
   const confirmed = await new Promise((resolve) => {
@@ -730,15 +748,21 @@ async function adminUpdateOrderStatus(orderId, action) {
 }
 
 async function loadOrders() {
-  const data = await api(`/webapp/api/orders?tg_id=${userId}`);
+  const data = await api(`/webapp/api/orders?tg_id=${userId}&page=${ordersPage}&page_size=${ordersPageSize}`);
   ordersCache = data.orders || [];
-  ordersSearchQuery = '';
-  ordersStatusFilter = 'all';
-  ordersPaymentFilter = 'all';
+  ordersPagination = data.pagination || null;
 
   const searchPlaceholder = role === 'admin'
     ? 'Qidirish: mijoz ismi yoki telefon...'
     : 'Qidirish: mahsulot, manzil...';
+
+  const shouldResetFilters = !document.getElementById('ordersList');
+  if (shouldResetFilters) {
+    ordersSearchQuery = '';
+    ordersStatusFilter = 'all';
+    ordersPaymentFilter = 'all';
+    ordersPage = 1;
+  }
 
   showSection(`
     <div class="filters panel">
