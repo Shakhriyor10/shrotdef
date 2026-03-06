@@ -165,6 +165,14 @@
     }
 
     .card { background: var(--card-bg); margin-top: 10px; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); overflow: hidden; }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .cards-grid .card {
+      margin-top: 0;
+    }
     .card img { width: 100%; height: 180px; object-fit: cover; background: #e5e7eb; }
     .card-body { padding: 10px; }
     .muted { color: var(--hint-color); font-size: 13px; }
@@ -285,6 +293,21 @@
       margin: 0;
     }
 
+    .cash-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 30;
+      padding: 16px;
+    }
+
+    .cash-modal-card {
+      width: min(100%, 420px);
+    }
+
     @media (max-width: 900px) {
       .container {
         grid-template-columns: 1fr;
@@ -294,6 +317,16 @@
         border-right: none;
         border-bottom: 1px solid var(--border-color);
         padding-bottom: 12px;
+      }
+
+      .cards-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .cards-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -308,12 +341,20 @@
       <div id="loginError" class="muted" style="margin-top:8px;color:#b91c1c;"></div>
     </div>
   </div>
+  <div id="cashEditModal" class="cash-modal" onclick="closeCashEditModal(event)">
+    <div class="panel cash-modal-card" onclick="event.stopPropagation()">
+      <h3>Kassani tahrirlash</h3>
+      <input id="topCashEditAmount" type="number" step="0.01" placeholder="Kassa summasi" />
+      <button class="buy-btn" onclick="saveCashboxFromModal()">Saqlash</button>
+      <button class="secondary-btn" onclick="closeCashEditModal()">Bekor qilish</button>
+    </div>
+  </div>
   <div class="app-shell">
     <header>
       <div class="brand"><img class="brand-logo" src="/img/logo.png" alt="Shrot Savdo logo" /><span class="brand-title">Pet Agro</span></div>
       <div class="cash-top">
         <span>Kassa: <span id="topCashAmount">...</span> so'm</span>
-        <button class="icon-btn" onclick="loadCashbox()" title="Kassani tahrirlash">✎</button>
+        <button class="icon-btn" onclick="openCashEditModal()" title="Kassani tahrirlash">✎</button>
       </div>
     </header>
     <div class="container">
@@ -514,13 +555,13 @@ async function loadManageProducts() {
       </div>
     </div>
   `).join('') || "<div class='panel'>Mahsulotlar yo'q.</div>";
-  showSection(cards);
+  showSection(`<div class="cards-grid">${cards}</div>`);
 }
 
 async function loadProducts() {
   const data = await api(`/webapp/api/products?tg_id=${userId}`);
   if (!data.products.length) return showSection('<div class="panel">Mahsulotlar yoʻq.</div>');
-  showSection(data.products.map(p => `
+  showSection(`<div class="cards-grid">${data.products.map(p => `
     <div class="card">
       <img src="${p.photo_url || ''}" onerror="this.style.display='none'" />
       <div class="card-body">
@@ -533,7 +574,39 @@ async function loadProducts() {
           : `<button class="secondary-btn" disabled>Нет в наличие</button>`}
       </div>
     </div>
-  `).join(''));
+  `).join('')}</div>`);
+}
+
+async function openCashEditModal() {
+  if (!userId) return;
+  try {
+    const data = await api(`/webapp/api/cashbox?tg_id=${userId}`);
+    const input = document.getElementById('topCashEditAmount');
+    if (input) input.value = Number(data.amount || 0);
+  } catch {
+    const input = document.getElementById('topCashEditAmount');
+    if (input) input.value = '';
+  }
+  const modal = document.getElementById('cashEditModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeCashEditModal(event) {
+  if (event && event.target && event.target.id !== 'cashEditModal') return;
+  const modal = document.getElementById('cashEditModal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function saveCashboxFromModal() {
+  const amount = Number(document.getElementById('topCashEditAmount')?.value || 0);
+  try {
+    await api('/webapp/api/cashbox', {method:'POST', body:JSON.stringify({tg_id:userId, amount})});
+    tg.showAlert('✅ Kassa yangilandi');
+    closeCashEditModal();
+    await refreshTopCash();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
 }
 
 function formatMoney(value) {
