@@ -363,6 +363,62 @@ function renderMenu(items) {
   `).join('');
 }
 
+async function saveProductChanges(productId) {
+  const name = (document.getElementById(`editName_${productId}`)?.value || '').trim();
+  const price = Number(document.getElementById(`editPrice_${productId}`)?.value || 0);
+  const stock = Number(document.getElementById(`editStock_${productId}`)?.value || 0);
+  const fileInput = document.getElementById(`editPhoto_${productId}`);
+
+  let photoDataUrl = '';
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    photoDataUrl = await fileToDataUrl(fileInput.files[0]);
+  }
+
+  try {
+    await api(`/webapp/api/products/${productId}/update`, {
+      method:'POST',
+      body: JSON.stringify({
+        tg_id: userId,
+        name,
+        price_per_kg: price,
+        stock_tons: stock,
+        photo_data_url: photoDataUrl || undefined,
+      })
+    });
+    tg.showAlert('✅ Mahsulot yangilandi');
+    await loadManageProducts();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+function toggleProductEdit(productId) {
+  document.getElementById(`editBlock_${productId}`)?.classList.toggle('hidden');
+}
+
+async function loadManageProducts() {
+  const data = await api(`/webapp/api/products?tg_id=${userId}`);
+  const cards = (data.products || []).map((p) => `
+    <div class="card">
+      ${p.photo_url ? `<img src="${p.photo_url}" alt="${p.name}">` : ''}
+      <div class="card-body">
+        <div><b>${p.name}</b></div>
+        <div class="muted">Narx: ${formatMoney(p.price_per_kg)} so'm/kg</div>
+        <div class="muted">Sklad: ${Number(p.stock_tons || 0).toLocaleString('ru-RU')} tonna</div>
+        <button class="buy-btn" onclick="toggleProductEdit(${p.id})">O'zgartirish</button>
+        <div id="editBlock_${p.id}" class="hidden">
+          <input id="editName_${p.id}" value="${escapeHtml(p.name || '')}" placeholder="Nomi" />
+          <input id="editPrice_${p.id}" type="number" step="0.01" value="${Number(p.price_per_kg || 0)}" placeholder="Narx (1kg)" />
+          <input id="editStock_${p.id}" type="number" step="0.001" value="${Number(p.stock_tons || 0)}" placeholder="Sklad (tonna)" />
+          <input id="editPhoto_${p.id}" type="file" accept="image/*" />
+          <button class="buy-btn" onclick="saveProductChanges(${p.id})">Saqlash</button>
+        </div>
+      </div>
+    </div>
+  `).join('') || "<div class='panel'>Mahsulotlar yo'q.</div>";
+  showSection(cards);
+}
+
 async function loadProducts() {
   const data = await api(`/webapp/api/products?tg_id=${userId}`);
   if (!data.products.length) return showSection('<div class="panel">Mahsulotlar yoʻq.</div>');
@@ -396,6 +452,15 @@ function formatDateTime(value) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+  });
+}
+
+async function fileToDataUrl(file) {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error("Rasmni o'qib bo'lmadi"));
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1058,13 +1123,113 @@ function formatReportTons(value) {
   return value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
-function renderReportsResult(data) {
+function getFilteredReportEntries() {
   const normalizedQuery = reportsSearchQuery.toLowerCase();
-  const filteredEntries = reportsEntriesCache.filter((entry) => {
+  return reportsEntriesCache.filter((entry) => {
     if (!normalizedQuery) return true;
     const haystack = `${entry.client} ${entry.product}`.toLowerCase();
     return haystack.includes(normalizedQuery);
   });
+}
+
+function exportReportsPdf() {
+  const filteredEntries = getFilteredReportEntries();
+  if (!filteredEntries.length) {
+    tg.showAlert("Eksport uchun ma'lumot yo'q.");
+    return;
+  }
+
+  const totalTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
+  const totalAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
+  const totalPaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.paid_amount), 0);
+  const totalUnpaid = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.unpaid_amount), 0);
+
+  const rowsHtml = filteredEntries.map((entry, idx) => `
+    <tr>
+      <td>${idx + 1}. ${escapeHtml(entry.client)}</td>
+      <td>${entry.order_id}</td>
+      <td>${escapeHtml(entry.product)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.tons)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.amount)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.paid_amount)}</td>
+      <td style="text-align:right;">${escapeHtml(entry.unpaid_amount)}</td>
+    </tr>
+  `).join('');
+
+  const period = escapeHtml(document.getElementById('reportsResult')?.dataset?.reportPeriod || '');
+  const html = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Hisobot PDF</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; }
+          h2 { margin: 0 0 8px; }
+          .meta { margin-bottom: 14px; color: #444; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border: 1px solid #999; padding: 6px 8px; }
+          th { background: #f2f2f2; }
+          tfoot td { font-weight: 700; background: #fafafa; }
+        </style>
+      </head>
+      <body>
+        <h2>Hisobot</h2>
+        <div class="meta">Davr: ${period}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Mijoz</th>
+              <th>Buyurtma ID</th>
+              <th>Mahsulot</th>
+              <th>Tonna</th>
+              <th>Jami summa</th>
+              <th>To'langan</th>
+              <th>To'lanmagan</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3">Jami</td>
+              <td style="text-align:right;">${formatReportTons(totalTons)}</td>
+              <td style="text-align:right;">${formatMoney(totalAmount)}</td>
+              <td style="text-align:right;">${formatMoney(totalPaid)}</td>
+              <td style="text-align:right;">${formatMoney(totalUnpaid)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </body>
+    </html>
+  `;
+
+  const periodSafe = String(period || 'hisobot').replace(/[^0-9A-Za-z._-]/g, '_');
+  const fileName = `hisobot_${periodSafe}.html`;
+  const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  api('/webapp/api/reports/send-pdf', {
+    method: 'POST',
+    body: JSON.stringify({
+      tg_id: userId,
+      period: document.getElementById('reportsResult')?.dataset?.reportPeriod || '',
+      file_name: fileName,
+      html,
+    })
+  })
+    .then(() => tg.showAlert("✅ HTML fayl bot orqali ham yuborildi, va fayl ham yuklab olindi."))
+    .catch((e) => tg.showAlert("⚠️ Fayl yuklab olindi, lekin botga yuborishda xato: " + e.message));
+}
+
+function renderReportsResult(data) {
+  const filteredEntries = getFilteredReportEntries();
 
   const filteredTons = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.tons), 0);
   const filteredAmount = filteredEntries.reduce((sum, entry) => sum + parseReportNumber(entry.amount), 0);
@@ -1123,6 +1288,7 @@ async function applyReportsFilter() {
     const reportsNode = document.getElementById('reportsResult');
     if (reportsNode) {
       reportsNode.dataset.reportMeta = JSON.stringify(data);
+      reportsNode.dataset.reportPeriod = String(data.period || '');
     }
     renderReportsResult(data);
   } catch (e) {
@@ -1140,6 +1306,7 @@ async function loadReports() {
       <input id="reportStartDate" type="date" value="${startDate}" />
       <input id="reportEndDate" type="date" value="${endDate}" />
       <button class="buy-btn" onclick="applyReportsFilter()">Hisobotni yangilash</button>
+      <button class="secondary-btn" onclick="exportReportsPdf()">PDF eksport</button>
       <input id="reportsSearch" placeholder="Qidirish: mijoz ismi yoki telefon" oninput="onReportsSearchInput(this.value)" />
     </div>
     <div id="reportsResult"></div>
@@ -1170,35 +1337,44 @@ function showContact() {
   `);
 }
 
+function renderRoleMenu(currentRole) {
+  if (currentRole === 'admin') {
+    renderMenu([
+      {label:'Mahsulotlar', icon:ICONS.products, action:'loadManageProducts()'},
+      {label:'Aloqa', icon:ICONS.contact, action:'showContact()'},
+      {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
+      {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
+      {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
+      {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
+      {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
+      {label:'Kassa', icon:ICONS.cash, action:'loadCashbox()'}
+    ]);
+  } else {
+    renderMenu([
+      {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
+      {label:'Mening buyurtmalarim', icon:ICONS.myOrders, action:'loadOrders()'},
+      {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
+    ]);
+  }
+}
+
 async function init() {
+  renderRoleMenu('user');
+  showMainMenu();
+
   try {
     const boot = await api(`/webapp/api/bootstrap?tg_id=${userId}`);
     role = boot.role || 'user';
-
-    if (role === 'admin') {
-      renderMenu([
-        {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
-        {label:'Aloqa', icon:ICONS.contact, action:'showContact()'},
-        {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
-        {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
-        {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
-        {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
-        {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
-        {label:'Kassa', icon:ICONS.cash, action:'loadCashbox()'}
-      ]);
-    } else {
-      renderMenu([
-        {label:'Mahsulotlar', icon:ICONS.products, action:'loadProducts()'},
-        {label:'Mening buyurtmalarim', icon:ICONS.myOrders, action:'loadOrders()'},
-        {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
-      ]);
-    }
-
+    renderRoleMenu(role);
     showMainMenu();
   } catch (e) {
-    showFatalError(e?.message || String(e));
+    role = 'user';
+    renderRoleMenu(role);
+    showMainMenu();
+    tg.showAlert("⚠️ Server bilan aloqa bo'lmadi. Asosiy menyu ochildi.");
   }
 }
+
 
 init();
 </script>
