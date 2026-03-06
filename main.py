@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import urllib.parse
 import urllib.request
@@ -32,6 +33,7 @@ REPORT_LIST = {8598163827, 8359092913, 5950335991, 45152058, 7746040125, 8328616
 WEB_APP_URL = "https://subcommissarial-paris-untensely.ngrok-free.dev/webapp"
 WEB_APP_BIND_HOST = os.getenv("WEB_APP_BIND_HOST", "0.0.0.0")
 WEB_APP_BIND_PORT = 8081
+ADMIN_WEB_PASSWORD = os.getenv("ADMIN_WEB_PASSWORD", "admin9999")
 
 
 def get_tashkent_tz() -> timezone:
@@ -1320,10 +1322,55 @@ def parse_tg_id(value: object) -> int:
 
 async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app = web.Application()
+    admin_web_sessions: dict[str, tuple[int, datetime]] = {}
+
+    def create_admin_session(tg_id: int) -> str:
+        token = secrets.token_urlsafe(32)
+        admin_web_sessions[token] = (tg_id, datetime.now(TASHKENT_TZ) + timedelta(hours=24))
+        return token
+
+    def get_admin_by_token(request: web.Request) -> int:
+        token = request.headers.get("X-Admin-Token", "").strip()
+        if not token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:].strip()
+        session = admin_web_sessions.get(token)
+        if not session:
+            return 0
+        tg_id, expires_at = session
+        if datetime.now(TASHKENT_TZ) > expires_at:
+            admin_web_sessions.pop(token, None)
+            return 0
+        return tg_id
+
+    def resolve_admin_id(request: web.Request, tg_id: int) -> int:
+        if is_admin(tg_id):
+            return tg_id
+        return get_admin_by_token(request)
 
     async def serve_index(_: web.Request) -> web.Response:
         html = Path("webapp_index.html").read_text(encoding="utf-8")
         return web.Response(text=html, content_type="text/html")
+
+    async def serve_admin(_: web.Request) -> web.Response:
+        html = Path("admin_index.html").read_text(encoding="utf-8")
+        return web.Response(text=html, content_type="text/html")
+
+    async def admin_login(request: web.Request) -> web.Response:
+        payload = await request.json()
+        login = parse_tg_id(payload.get("login"))
+        password = str(payload.get("password") or "")
+        if not is_admin(login) or password != ADMIN_WEB_PASSWORD:
+            return web.json_response({"error": "Login yoki parol noto'g'ri."}, status=401)
+        token = create_admin_session(login)
+        return web.json_response({"ok": True, "token": token})
+
+    async def admin_me(request: web.Request) -> web.Response:
+        tg_id = get_admin_by_token(request)
+        if not tg_id:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        return web.json_response({"ok": True, "tg_id": tg_id})
 
     async def bootstrap(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
@@ -1353,7 +1400,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         product_id = int(request.match_info.get("product_id", "0") or 0)
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
 
         product = db.get_product(product_id)
@@ -1384,7 +1431,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 
     async def clients_search(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
 
         query = (request.query.get("query") or "").strip()
@@ -1413,7 +1460,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         page_size = min(max(page_size, 1), 50)
         offset = (page - 1) * page_size
 
-        admin_view = is_admin(tg_id)
+        admin_view = bool(resolve_admin_id(request, tg_id))
         total = db.count_orders() if admin_view else db.count_orders_for_user(user["id"])
         rows = db.list_orders_with_details(limit=page_size, offset=offset) if admin_view else db.list_orders_for_user(user["id"], limit=page_size, offset=offset)
         orders = []
@@ -1436,6 +1483,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                         row["quantity"],
                         price_per_kg,
                     ),
+                    "total_amount_raw": total_amount_raw,
                     "paid_amount": format_money_with_commas(paid_amount_raw),
                     "paid_amount_raw": paid_amount_raw,
                     "remaining_amount": format_money_with_commas(remaining_amount_raw),
@@ -1488,7 +1536,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
         action = (payload.get("action") or "").strip().lower()
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         if action not in {"close", "cancel"}:
             return web.json_response({"error": "Noto'g'ri action."}, status=400)
@@ -1543,7 +1591,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     async def order_payments_get(request: web.Request) -> web.Response:
         order_id = int(request.match_info.get("order_id", "0") or 0)
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         payments = [
             {
@@ -1560,7 +1608,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         order_id = int(request.match_info.get("order_id", "0") or 0)
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         amount = float(payload.get("amount") or 0)
         if amount <= 0:
@@ -1580,7 +1628,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         payment_id = int(request.match_info.get("payment_id", "0") or 0)
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         deleted = db.delete_order_payment(order_id, payment_id, tg_id)
         if not deleted:
@@ -1589,7 +1637,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 
     async def warehouse_products_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         items = [
             {
@@ -1605,7 +1653,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     async def warehouse_receipt_api(request: web.Request) -> web.Response:
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         product_id = int(payload.get("product_id") or 0)
         quantity_tons = parse_quantity_to_tons(str(payload.get("quantity_tons") or ""))
@@ -1622,7 +1670,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 
     async def warehouse_receipts_list_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
 
         page = max(int(request.query.get("page") or 1), 1)
@@ -1706,7 +1754,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     async def warehouse_receipt_payments_get(request: web.Request) -> web.Response:
         receipt_id = int(request.match_info.get("receipt_id", "0") or 0)
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         payments = [
             {
@@ -1723,7 +1771,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         receipt_id = int(request.match_info.get("receipt_id", "0") or 0)
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         amount = float(payload.get("amount") or 0)
         if amount <= 0:
@@ -1741,7 +1789,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         payment_id = int(request.match_info.get("payment_id", "0") or 0)
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         deleted = db.delete_warehouse_receipt_payment(receipt_id, payment_id, tg_id)
         if not deleted:
@@ -1750,7 +1798,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 
     async def cashbox_get_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         operations = [
             {
@@ -1769,7 +1817,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     async def cashbox_set_api(request: web.Request) -> web.Response:
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         amount = float(payload.get("amount") or 0)
         db.set_cashbox_amount(amount)
@@ -1777,7 +1825,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 
     async def stats_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
         top_limit = 20
         top_purchasers = [
@@ -1811,7 +1859,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     async def reports_send_pdf_api(request: web.Request) -> web.Response:
         payload = await request.json()
         tg_id = parse_tg_id(payload.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
 
         period = str(payload.get("period") or "").strip() or datetime.now().strftime("%Y-%m-%d")
@@ -1833,7 +1881,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 
     async def reports_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
-        if not is_admin(tg_id):
+        if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
 
         start_raw = (request.query.get("start_date") or "").strip()
@@ -1896,6 +1944,9 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         )
 
     app.router.add_get("/webapp", serve_index)
+    app.router.add_get("/admin", serve_admin)
+    app.router.add_post("/admin/api/login", admin_login)
+    app.router.add_get("/admin/api/me", admin_me)
     app.router.add_static("/img", path="img", name="img")
     app.router.add_get("/webapp/api/bootstrap", bootstrap)
     app.router.add_get("/webapp/api/products", products_api)
