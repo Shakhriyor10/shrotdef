@@ -150,6 +150,7 @@ media_group_buffer: dict[int, dict[str, object]] = {}
 support_reply_map: dict[tuple[int, int], int] = {}
 support_media_group_reject: set[tuple[int, str]] = set()
 admin_media_group_reject: set[tuple[int, str]] = set()
+order_stream_subscribers: set[asyncio.Queue[str]] = set()
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -547,6 +548,28 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
             )
         except Exception:
             continue
+
+
+async def publish_order_created_event(order_id: int) -> None:
+    if not order_stream_subscribers:
+        return
+    payload = json.dumps({"type": "order_created", "order_id": int(order_id)})
+    stale_subscribers: list[asyncio.Queue[str]] = []
+    for queue in list(order_stream_subscribers):
+        try:
+            queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                stale_subscribers.append(queue)
+                continue
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                stale_subscribers.append(queue)
+    for queue in stale_subscribers:
+        order_stream_subscribers.discard(queue)
 
 
 def format_order_datetime(value: str) -> str:
@@ -1340,7 +1363,6 @@ def parse_tg_id(value: object) -> int:
 async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app = web.Application()
     admin_web_sessions: dict[str, tuple[int, datetime]] = {}
-    order_stream_subscribers: set[asyncio.Queue[str]] = set()
 
     def create_admin_session(tg_id: int) -> str:
         token = secrets.token_urlsafe(32)
@@ -1379,27 +1401,6 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         if is_admin(tg_id):
             return tg_id
         return get_admin_by_token(request)
-
-    async def publish_order_created_event(order_id: int) -> None:
-        if not order_stream_subscribers:
-            return
-        payload = json.dumps({"type": "order_created", "order_id": int(order_id)})
-        stale_subscribers: list[asyncio.Queue[str]] = []
-        for queue in list(order_stream_subscribers):
-            try:
-                queue.put_nowait(payload)
-            except asyncio.QueueFull:
-                try:
-                    queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    stale_subscribers.append(queue)
-                    continue
-                try:
-                    queue.put_nowait(payload)
-                except asyncio.QueueFull:
-                    stale_subscribers.append(queue)
-        for queue in stale_subscribers:
-            order_stream_subscribers.discard(queue)
 
     async def serve_index(_: web.Request) -> web.Response:
         html = Path("webapp_index.html").read_text(encoding="utf-8")
@@ -2364,6 +2365,7 @@ async def main() -> None:
             "✅ Buyurtma tasdiqlandi!", reply_markup=user_keyboard(message.from_user.id)
         )
         await notify_admins_new_order(message.bot, order_id)
+        await publish_order_created_event(order_id)
         await state.clear()
 
     @dp.message(OrderStates.address, F.location)
@@ -2606,6 +2608,7 @@ async def main() -> None:
                 f"✅ Buyurtma yaratildi va yopildi. 🆔 ID: {order_id}",
                 reply_markup=user_keyboard(callback.from_user.id),
             )
+        await publish_order_created_event(order_id)
         await callback.answer("✅ Buyurtma yaratildi")
 
     @dp.callback_query(F.data == "admin_order_cancel")
