@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -1851,6 +1852,22 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not resolve_admin_id(request, tg_id):
             return web.json_response({"error": "Forbidden"}, status=403)
+
+        page = int(request.query.get("page", "1") or 1)
+        page_size = int(request.query.get("page_size", "50") or 50)
+        start_date = (request.query.get("start_date") or "").strip()
+        end_date = (request.query.get("end_date") or "").strip()
+
+        page = max(page, 1)
+        page_size = max(min(page_size, 200), 1)
+
+        operations_rows, total = db.list_cashbox_operations_paginated(
+            page=page,
+            page_size=page_size,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
         operations = [
             {
                 "id": row["id"],
@@ -1861,9 +1878,27 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                 "note": row["note"] or "",
                 "created_at": row["created_at"],
             }
-            for row in db.list_cashbox_operations(limit=20)
+            for row in operations_rows
         ]
-        return web.json_response({"amount": db.get_cashbox_amount(), "operations": operations})
+        total_pages = max(1, math.ceil(total / page_size)) if total else 1
+        return web.json_response(
+            {
+                "amount": db.get_cashbox_amount(),
+                "operations": operations,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": total_pages,
+                    "has_prev": page > 1,
+                    "has_next": page < total_pages,
+                },
+                "filters": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            }
+        )
 
     async def cashbox_set_api(request: web.Request) -> web.Response:
         payload = await request.json()

@@ -442,6 +442,35 @@
       width: min(100%, 420px);
     }
 
+    .cash-ops-filters {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+      align-items: end;
+    }
+
+    .cash-ops-meta {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .cash-ops-pager {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cash-ops-pager .secondary-btn {
+      width: auto;
+      margin-top: 0;
+      padding: 8px 12px;
+    }
+
     @media (max-width: 900px) {
       .container {
         grid-template-columns: 1fr;
@@ -460,6 +489,10 @@
 
     @media (max-width: 640px) {
       .cards-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .cash-ops-filters {
         grid-template-columns: 1fr;
       }
     }
@@ -548,6 +581,10 @@ let reportsSearchQuery = '';
 let selectedClient = null;
 let clientSearchSeq = 0;
 let editingProductId = null;
+let cashOperationsPage = 1;
+const CASH_OPERATIONS_PAGE_SIZE = 50;
+let cashOperationsStartDate = '';
+let cashOperationsEndDate = '';
 
 function applySidebarState() {
   const collapsed = localStorage.getItem('admin_sidebar_collapsed') === '1';
@@ -1557,21 +1594,108 @@ async function loadWarehouse() {
 }
 
 async function loadCashbox() {
-  const data = await api(`/webapp/api/cashbox?tg_id=${userId}`);
-  const ops = (data.operations || []).map(op => {
+  const query = new URLSearchParams({
+    tg_id: String(userId),
+    page: String(cashOperationsPage),
+    page_size: String(CASH_OPERATIONS_PAGE_SIZE)
+  });
+  if (cashOperationsStartDate) query.set('start_date', cashOperationsStartDate);
+  if (cashOperationsEndDate) query.set('end_date', cashOperationsEndDate);
+
+  const data = await api(`/webapp/api/cashbox?${query.toString()}`);
+  const pagination = data.pagination || {};
+  const operations = data.operations || [];
+
+  const opsRows = operations.map((op, idx) => {
     const sign = op.operation_type === 'income' ? '+' : '-';
-    const emoji = op.operation_type === 'income' ? '🟢' : '🔴';
-    return `<div class="panel">${emoji} ${sign}${op.amount_label} so'm<br><span class="muted">${op.note || op.reason || ''}</span><br><span class="muted">📅 ${formatDateTime(op.created_at)}</span></div>`;
-  }).join('') || "<div class='panel'>Operatsiyalar yo'q.</div>";
+    const typeLabel = op.operation_type === 'income' ? 'Kirim' : 'Chiqim';
+    const noteText = op.note || op.reason || '—';
+    const rowNumber = (Number(pagination.page || 1) - 1) * Number(pagination.page_size || CASH_OPERATIONS_PAGE_SIZE) + idx + 1;
+    return `
+      <tr>
+        <td>${rowNumber}</td>
+        <td>${formatDateTime(op.created_at)}</td>
+        <td>${typeLabel}</td>
+        <td>${sign}${escapeHtml(op.amount_label)} so'm</td>
+        <td style="white-space:normal;word-break:break-word;max-width:320px;">${escapeHtml(noteText)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const opsTable = operations.length ? `
+    <div class="table-wrap">
+      <table class="report-table" style="min-width:760px;">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Sana</th>
+            <th>Turi</th>
+            <th>Summa</th>
+            <th>Izoh</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${opsRows}
+        </tbody>
+      </table>
+    </div>
+  ` : "<div class='panel'>Operatsiyalar topilmadi.</div>";
+
+  const page = Number(pagination.page || 1);
+  const totalPages = Number(pagination.total_pages || 1);
+  const total = Number(pagination.total || 0);
+
   showSection(`
     <div class="panel">
       <b>Kassa:</b> ${formatMoney(data.amount)} so'm
       <input id="cashboxAmount" type="number" step="0.01" value="${Number(data.amount || 0)}" />
       <button class="buy-btn" onclick="saveCashbox()">Kassani saqlash</button>
     </div>
-    <div class="panel"><b>So'nggi operatsiyalar</b></div>
-    ${ops}
+    <div class="panel">
+      <b>So'nggi operatsiyalar</b>
+      <div class="cash-ops-filters">
+        <div>
+          <label for="cashOpsStartDate">Boshlanish sanasi</label>
+          <input id="cashOpsStartDate" type="date" value="${escapeHtml(cashOperationsStartDate)}" />
+        </div>
+        <div>
+          <label for="cashOpsEndDate">Tugash sanasi</label>
+          <input id="cashOpsEndDate" type="date" value="${escapeHtml(cashOperationsEndDate)}" />
+        </div>
+      </div>
+      <div class="cash-ops-filters" style="grid-template-columns:repeat(2, minmax(0, 1fr));margin-top:8px;">
+        <button class="buy-btn" style="margin-top:0;" onclick="applyCashboxFilters()">Filtrlash</button>
+        <button class="secondary-btn" style="margin-top:0;" onclick="resetCashboxFilters()">Filtrlarni tozalash</button>
+      </div>
+      ${opsTable}
+      <div class="cash-ops-meta muted">
+        <span>Jami: ${total} ta | Sahifa: ${page} / ${totalPages} | Har sahifada: ${CASH_OPERATIONS_PAGE_SIZE}</span>
+        <div class="cash-ops-pager">
+          <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeCashboxPage(-1)">⬅️ Oldingi</button>
+          <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeCashboxPage(1)">Keyingi ➡️</button>
+        </div>
+      </div>
+    </div>
   `);
+}
+
+function applyCashboxFilters() {
+  cashOperationsStartDate = document.getElementById('cashOpsStartDate')?.value || '';
+  cashOperationsEndDate = document.getElementById('cashOpsEndDate')?.value || '';
+  cashOperationsPage = 1;
+  loadCashbox().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+function resetCashboxFilters() {
+  cashOperationsStartDate = '';
+  cashOperationsEndDate = '';
+  cashOperationsPage = 1;
+  loadCashbox().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+function changeCashboxPage(delta) {
+  cashOperationsPage = Math.max(1, cashOperationsPage + Number(delta || 0));
+  loadCashbox().catch((e) => tg.showAlert('Xato: ' + e.message));
 }
 
 async function saveCashbox() {
