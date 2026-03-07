@@ -1608,14 +1608,15 @@ async function loadCashbox() {
 
   const opsRows = operations.map((op, idx) => {
     const sign = op.operation_type === 'income' ? '+' : '-';
-    const typeLabel = op.operation_type === 'income' ? 'Kirim' : 'Chiqim';
+    const typeClass = op.operation_type === 'income' ? 'status-closed' : 'status-canceled';
+    const typeTitle = op.operation_type === 'income' ? 'Kirim' : 'Chiqim';
     const noteText = op.note || op.reason || '—';
     const rowNumber = (Number(pagination.page || 1) - 1) * Number(pagination.page_size || CASH_OPERATIONS_PAGE_SIZE) + idx + 1;
     return `
       <tr>
         <td>${rowNumber}</td>
         <td>${formatDateTime(op.created_at)}</td>
-        <td>${typeLabel}</td>
+        <td><span class="status-badge ${typeClass}" title="${typeTitle}"></span></td>
         <td>${sign}${escapeHtml(op.amount_label)} so'm</td>
         <td style="white-space:normal;word-break:break-word;max-width:320px;">${escapeHtml(noteText)}</td>
       </tr>
@@ -1644,6 +1645,7 @@ async function loadCashbox() {
   const page = Number(pagination.page || 1);
   const totalPages = Number(pagination.total_pages || 1);
   const total = Number(pagination.total || 0);
+  const showCashPagination = total > CASH_OPERATIONS_PAGE_SIZE;
 
   showSection(`
     <div class="panel">
@@ -1669,11 +1671,13 @@ async function loadCashbox() {
       </div>
       ${opsTable}
       <div class="cash-ops-meta muted">
-        <span>Jami: ${total} ta | Sahifa: ${page} / ${totalPages} | Har sahifada: ${CASH_OPERATIONS_PAGE_SIZE}</span>
-        <div class="cash-ops-pager">
-          <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeCashboxPage(-1)">⬅️ Oldingi</button>
-          <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeCashboxPage(1)">Keyingi ➡️</button>
-        </div>
+        <span>${showCashPagination ? `Jami: ${total} ta | Sahifa: ${page} / ${totalPages} | Har sahifada: ${CASH_OPERATIONS_PAGE_SIZE}` : `Jami: ${total} ta`}</span>
+        ${showCashPagination ? `
+          <div class="cash-ops-pager">
+            <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeCashboxPage(-1)">⬅️ Oldingi</button>
+            <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeCashboxPage(1)">Keyingi ➡️</button>
+          </div>
+        ` : ''}
       </div>
     </div>
   `);
