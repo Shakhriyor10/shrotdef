@@ -340,6 +340,14 @@
       border-radius: 8px;
       font-weight: 700;
     }
+    .danger-btn {
+      background: #dc2626;
+      color: #ffffff;
+      border: 1px solid #b91c1c;
+    }
+    .danger-btn:hover {
+      background: #b91c1c;
+    }
     .addr-cell {
       display: inline-flex;
       align-items: center;
@@ -1396,6 +1404,29 @@ async function manageWarehouseReceiptPayments(receiptId) {
   }
 }
 
+
+async function deleteWarehouseReceipt(receiptId) {
+  const confirmed = await new Promise((resolve) => {
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm("Prihodni butunlay o'chirmoqchimisiz?", resolve);
+      return;
+    }
+    resolve(window.confirm("Prihodni butunlay o'chirmoqchimisiz?"));
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(`/webapp/api/warehouse/receipts/${receiptId}/delete`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert("✅ Prihod o'chirildi.");
+    await loadWarehouse();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
 async function renderWarehouseReceiptsView() {
   const params = new URLSearchParams({
     tg_id: String(userId),
@@ -1408,19 +1439,24 @@ async function renderWarehouseReceiptsView() {
   if (warehouseEndDate) params.set('end_date', warehouseEndDate);
 
   const data = await api(`/webapp/api/warehouse/receipts?${params.toString()}`);
-  const cards = (data.receipts || []).map(item => `
-    <div class="panel">
-      <b>Prihod #${item.id}</b><br>
-      Sana: <b>${formatDateTime(item.created_at)}</b><br>
-      Mahsulot: <b>${item.product_name}</b><br>
-      Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
-      Jami summa: <b>${item.total_amount_label} so'm</b><br>
-      To'langan: <b>${item.paid_amount_label} so'm</b><br>
-      Qoldiq: <b>${item.remaining_amount_label} so'm</b><br>
-      To'lovlar soni: <b>${item.payments_count || 0}</b><br>
-      <button class="buy-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish / o'chirish</button>
-    </div>
-  `).join('') || "<div class='panel'>Prihodlar yo'q.</div>";
+  const rows = (data.receipts || []).map(item => `
+    <tr>
+      <td>#${item.id}</td>
+      <td>${formatDateTime(item.created_at)}</td>
+      <td>${escapeHtml(item.product_name || '—')}</td>
+      <td>${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna</td>
+      <td>${item.total_amount_label} so'm</td>
+      <td>${item.paid_amount_label} so'm</td>
+      <td>${item.remaining_amount_label} so'm</td>
+      <td>${item.payments_count || 0}</td>
+      <td>
+        <div class="table-actions">
+          <button class="buy-btn mini-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish</button>
+          <button class="mini-btn danger-btn" onclick="deleteWarehouseReceipt(${item.id})" title="Prihodni o'chirish">🗑</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
 
   const pagination = data.pagination || {};
   const pagerHtml = (pagination.total_pages || 1) > 1 ? `
@@ -1433,8 +1469,31 @@ async function renderWarehouseReceiptsView() {
     </div>
   ` : '';
 
+  const tableHtml = rows ? `
+    <div class="table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Prihod ID</th>
+            <th>Sana</th>
+            <th>Mahsulot</th>
+            <th>Miqdor</th>
+            <th>Jami summa</th>
+            <th>To'langan</th>
+            <th>Qoldiq</th>
+            <th>To'lovlar</th>
+            <th>Amal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  ` : "<div class='panel'>Prihodlar yo'q.</div>";
+
   const root = document.getElementById('warehouseReceipts');
-  if (root) root.innerHTML = cards + pagerHtml;
+  if (root) root.innerHTML = tableHtml + pagerHtml;
 }
 
 function applyWarehouseReceiptFilters() {
@@ -1475,11 +1534,6 @@ async function loadWarehouse() {
         <option value="paid" ${warehousePaymentFilter === 'paid' ? 'selected' : ''}>To'liq to'langan</option>
         <option value="unpaid" ${warehousePaymentFilter === 'unpaid' ? 'selected' : ''}>To'lanmagan</option>
         <option value="partial" ${warehousePaymentFilter === 'partial' ? 'selected' : ''}>Qisman to'langan</option>
-      </select>
-      <select id="warehouseRemainingFilter">
-        <option value="all" ${warehouseRemainingFilter === 'all' ? 'selected' : ''}>Qoldiq: barchasi</option>
-        <option value="with_remaining" ${warehouseRemainingFilter === 'with_remaining' ? 'selected' : ''}>Qoldig'i bor</option>
-        <option value="no_remaining" ${warehouseRemainingFilter === 'no_remaining' ? 'selected' : ''}>Qoldig'i yo'q</option>
       </select>
       <button class="buy-btn" onclick="applyWarehouseReceiptFilters()">Filterni qo'llash</button>
     </div>
