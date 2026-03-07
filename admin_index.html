@@ -340,6 +340,14 @@
       border-radius: 8px;
       font-weight: 700;
     }
+    .danger-btn {
+      background: #dc2626;
+      color: #ffffff;
+      border: 1px solid #b91c1c;
+    }
+    .danger-btn:hover {
+      background: #b91c1c;
+    }
     .addr-cell {
       display: inline-flex;
       align-items: center;
@@ -1396,6 +1404,29 @@ async function manageWarehouseReceiptPayments(receiptId) {
   }
 }
 
+
+async function deleteWarehouseReceipt(receiptId) {
+  const confirmed = await new Promise((resolve) => {
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm("Prihodni butunlay o'chirmoqchimisiz?", resolve);
+      return;
+    }
+    resolve(window.confirm("Prihodni butunlay o'chirmoqchimisiz?"));
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(`/webapp/api/warehouse/receipts/${receiptId}/delete`, {
+      method:'POST',
+      body:JSON.stringify({tg_id:userId})
+    });
+    tg.showAlert("✅ Prihod o'chirildi.");
+    await loadWarehouse();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
 async function renderWarehouseReceiptsView() {
   const params = new URLSearchParams({
     tg_id: String(userId),
@@ -1421,6 +1452,7 @@ async function renderWarehouseReceiptsView() {
       <td>
         <div class="table-actions">
           <button class="buy-btn mini-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish</button>
+          <button class="mini-btn danger-btn" onclick="deleteWarehouseReceipt(${item.id})" title="Prihodni o'chirish">🗑</button>
         </div>
       </td>
     </tr>

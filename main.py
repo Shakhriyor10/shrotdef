@@ -1812,6 +1812,24 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             return web.json_response({"error": "To'lov topilmadi."}, status=404)
         return web.json_response({"ok": True})
 
+    async def warehouse_receipt_delete(request: web.Request) -> web.Response:
+        receipt_id = int(request.match_info.get("receipt_id", "0") or 0)
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not resolve_admin_id(request, tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        deleted, reason = db.delete_warehouse_receipt(receipt_id)
+        if deleted:
+            return web.json_response({"ok": True})
+        if reason == "not_found":
+            return web.json_response({"error": "Prihod topilmadi."}, status=404)
+        if reason == "has_payments":
+            return web.json_response({"error": "Avval bu prihod to'lovlarini o'chiring, keyin prihodni o'chirish mumkin."}, status=400)
+        if reason == "insufficient_stock":
+            return web.json_response({"error": "Prihodni o'chirib bo'lmaydi: sklad qoldig'i yetarli emas (mahsulotning bir qismi sotilgan)."}, status=400)
+        return web.json_response({"error": "Prihodni o'chirishda xatolik."}, status=400)
+
     async def cashbox_get_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not resolve_admin_id(request, tg_id):
@@ -1981,6 +1999,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/webapp/api/warehouse/receipts/{receipt_id}/payments", warehouse_receipt_payments_get)
     app.router.add_post("/webapp/api/warehouse/receipts/{receipt_id}/payments", warehouse_receipt_payments_add)
     app.router.add_post("/webapp/api/warehouse/receipts/{receipt_id}/payments/{payment_id}/delete", warehouse_receipt_payments_delete)
+    app.router.add_post("/webapp/api/warehouse/receipts/{receipt_id}/delete", warehouse_receipt_delete)
     app.router.add_get("/webapp/api/cashbox", cashbox_get_api)
     app.router.add_post("/webapp/api/cashbox", cashbox_set_api)
     app.router.add_get("/webapp/api/stats", stats_api)

@@ -987,6 +987,53 @@ def delete_warehouse_receipt_payment(receipt_id: int, payment_id: int, deleted_b
         return True
 
 
+def delete_warehouse_receipt(receipt_id: int) -> tuple[bool, str]:
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        receipt_row = conn.execute(
+            """
+            SELECT id, product_id, quantity_tons
+            FROM warehouse_receipts
+            WHERE id = ?
+            """,
+            (receipt_id,),
+        ).fetchone()
+        if not receipt_row:
+            return False, "not_found"
+
+        payment_count_row = conn.execute(
+            "SELECT COUNT(*) AS total FROM warehouse_receipt_payments WHERE receipt_id = ?",
+            (receipt_id,),
+        ).fetchone()
+        payment_count = int(payment_count_row["total"] if payment_count_row else 0)
+        if payment_count > 0:
+            return False, "has_payments"
+
+        product_id = int(receipt_row["product_id"])
+        receipt_qty = float(receipt_row["quantity_tons"] or 0)
+        stock_row = conn.execute(
+            "SELECT COALESCE(quantity_tons, 0) AS quantity_tons FROM product_stock WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()
+        current_stock = float(stock_row["quantity_tons"] if stock_row else 0)
+
+        if current_stock + 1e-9 < receipt_qty:
+            return False, "insufficient_stock"
+
+        conn.execute(
+            """
+            INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id) DO UPDATE SET
+                quantity_tons = quantity_tons - excluded.quantity_tons,
+                updated_at = excluded.updated_at
+            """,
+            (product_id, receipt_qty, now),
+        )
+        conn.execute("DELETE FROM warehouse_receipts WHERE id = ?", (receipt_id,))
+        return True, "ok"
+
+
 def get_cashbox_amount() -> float:
     with get_connection() as conn:
         row = conn.execute("SELECT amount FROM cashbox WHERE id = 1").fetchone()
