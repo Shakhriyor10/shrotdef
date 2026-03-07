@@ -1408,19 +1408,23 @@ async function renderWarehouseReceiptsView() {
   if (warehouseEndDate) params.set('end_date', warehouseEndDate);
 
   const data = await api(`/webapp/api/warehouse/receipts?${params.toString()}`);
-  const cards = (data.receipts || []).map(item => `
-    <div class="panel">
-      <b>Prihod #${item.id}</b><br>
-      Sana: <b>${formatDateTime(item.created_at)}</b><br>
-      Mahsulot: <b>${item.product_name}</b><br>
-      Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
-      Jami summa: <b>${item.total_amount_label} so'm</b><br>
-      To'langan: <b>${item.paid_amount_label} so'm</b><br>
-      Qoldiq: <b>${item.remaining_amount_label} so'm</b><br>
-      To'lovlar soni: <b>${item.payments_count || 0}</b><br>
-      <button class="buy-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish / o'chirish</button>
-    </div>
-  `).join('') || "<div class='panel'>Prihodlar yo'q.</div>";
+  const rows = (data.receipts || []).map(item => `
+    <tr>
+      <td>#${item.id}</td>
+      <td>${formatDateTime(item.created_at)}</td>
+      <td>${escapeHtml(item.product_name || '—')}</td>
+      <td>${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna</td>
+      <td>${item.total_amount_label} so'm</td>
+      <td>${item.paid_amount_label} so'm</td>
+      <td>${item.remaining_amount_label} so'm</td>
+      <td>${item.payments_count || 0}</td>
+      <td>
+        <div class="table-actions">
+          <button class="buy-btn mini-btn" onclick="manageWarehouseReceiptPayments(${item.id})">To'lov qo'shish</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
 
   const pagination = data.pagination || {};
   const pagerHtml = (pagination.total_pages || 1) > 1 ? `
@@ -1433,8 +1437,31 @@ async function renderWarehouseReceiptsView() {
     </div>
   ` : '';
 
+  const tableHtml = rows ? `
+    <div class="table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Prihod ID</th>
+            <th>Sana</th>
+            <th>Mahsulot</th>
+            <th>Miqdor</th>
+            <th>Jami summa</th>
+            <th>To'langan</th>
+            <th>Qoldiq</th>
+            <th>To'lovlar</th>
+            <th>Amal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  ` : "<div class='panel'>Prihodlar yo'q.</div>";
+
   const root = document.getElementById('warehouseReceipts');
-  if (root) root.innerHTML = cards + pagerHtml;
+  if (root) root.innerHTML = tableHtml + pagerHtml;
 }
 
 function applyWarehouseReceiptFilters() {
