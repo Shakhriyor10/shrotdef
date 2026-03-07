@@ -586,9 +586,9 @@ const CASH_OPERATIONS_PAGE_SIZE = 50;
 let cashOperationsStartDate = '';
 let cashOperationsEndDate = '';
 let activeSection = '';
-let ordersAutoRefreshTimer = null;
+let ordersEventsSource = null;
+let ordersEventsReconnectTimer = null;
 let ordersAutoRefreshInFlight = false;
-const ORDERS_AUTO_REFRESH_MS = 3000;
 
 function applySidebarState() {
   const collapsed = localStorage.getItem('admin_sidebar_collapsed') === '1';
@@ -669,27 +669,63 @@ function showSection(html) {
 }
 
 function stopOrdersAutoRefresh() {
-  if (!ordersAutoRefreshTimer) return;
-  clearInterval(ordersAutoRefreshTimer);
-  ordersAutoRefreshTimer = null;
+  if (ordersEventsReconnectTimer) {
+    clearTimeout(ordersEventsReconnectTimer);
+    ordersEventsReconnectTimer = null;
+  }
+  if (ordersEventsSource) {
+    ordersEventsSource.close();
+    ordersEventsSource = null;
+  }
   ordersAutoRefreshInFlight = false;
 }
 
 function startOrdersAutoRefresh() {
-  if (role !== 'admin') return;
-  if (ordersAutoRefreshTimer) return;
-  ordersAutoRefreshTimer = setInterval(async () => {
+  if (role !== 'admin' || activeSection !== 'orders') return;
+  if (!adminToken) return;
+  if (ordersEventsSource) return;
+
+  const connect = () => {
     if (activeSection !== 'orders') return;
-    if (ordersAutoRefreshInFlight) return;
-    ordersAutoRefreshInFlight = true;
-    try {
-      await loadOrders({preserveScroll: true});
-    } catch {
-      // no-op: fon yangilanishida xatoni doimiy ko'rsatmaymiz
-    } finally {
-      ordersAutoRefreshInFlight = false;
-    }
-  }, ORDERS_AUTO_REFRESH_MS);
+    const streamUrl = `/admin/api/orders/stream?token=${encodeURIComponent(adminToken)}`;
+    const source = new EventSource(streamUrl);
+    ordersEventsSource = source;
+
+    source.onmessage = async (event) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(event.data || '{}');
+      } catch {
+        payload = null;
+      }
+      if (!payload || payload.type !== 'order_created') return;
+      if (activeSection !== 'orders') return;
+      if (ordersAutoRefreshInFlight) return;
+      ordersAutoRefreshInFlight = true;
+      try {
+        await loadOrders({preserveScroll: true});
+      } catch {
+        // no-op
+      } finally {
+        ordersAutoRefreshInFlight = false;
+      }
+    };
+
+    source.onerror = () => {
+      source.close();
+      if (ordersEventsSource === source) {
+        ordersEventsSource = null;
+      }
+      if (activeSection !== 'orders') return;
+      if (ordersEventsReconnectTimer) clearTimeout(ordersEventsReconnectTimer);
+      ordersEventsReconnectTimer = setTimeout(() => {
+        ordersEventsReconnectTimer = null;
+        startOrdersAutoRefresh();
+      }, 2000);
+    };
+  };
+
+  connect();
 }
 
 async function loginAdmin() {
