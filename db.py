@@ -1084,6 +1084,55 @@ def list_cashbox_operations(limit: int = 20) -> Iterable[sqlite3.Row]:
         ).fetchall()
 
 
+def list_cashbox_operations_paginated(
+    page: int = 1,
+    page_size: int = 50,
+    start_date: str = "",
+    end_date: str = "",
+) -> tuple[list[sqlite3.Row], int]:
+    safe_page = max(int(page or 1), 1)
+    safe_page_size = max(min(int(page_size or 50), 200), 1)
+    offset = (safe_page - 1) * safe_page_size
+
+    clauses: list[str] = []
+    params: list[object] = []
+    if start_date:
+        clauses.append("date(created_at) >= date(?)")
+        params.append(start_date)
+    if end_date:
+        clauses.append("date(created_at) <= date(?)")
+        params.append(end_date)
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with get_connection() as conn:
+        total_row = conn.execute(
+            f"SELECT COUNT(*) AS total FROM cashbox_operations {where_sql}",
+            tuple(params),
+        ).fetchone()
+        rows = conn.execute(
+            f"""
+            SELECT
+                id,
+                operation_type,
+                amount,
+                reason,
+                reference_type,
+                reference_id,
+                note,
+                created_at,
+                created_by
+            FROM cashbox_operations
+            {where_sql}
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple([*params, safe_page_size, offset]),
+        ).fetchall()
+
+    return rows, int(total_row["total"] if total_row else 0)
+
+
 def add_order_payment(order_id: int, amount: float, created_by: Optional[int]) -> int:
     if amount <= 0:
         raise ValueError("Amount must be > 0")
