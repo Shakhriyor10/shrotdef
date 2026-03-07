@@ -300,37 +300,33 @@
     }
     .status-badge {
       display: inline-block;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
       border: 1px solid transparent;
-      white-space: nowrap;
+      vertical-align: middle;
     }
     .status-open {
-      color: #92400e;
-      background: #fef3c7;
-      border-color: #fcd34d;
+      background: #f59e0b;
+      border-color: #d97706;
     }
     .status-closed {
-      color: #166534;
-      background: #dcfce7;
-      border-color: #86efac;
+      background: #16a34a;
+      border-color: #15803d;
     }
     .status-canceled {
-      color: #991b1b;
-      background: #fee2e2;
-      border-color: #fca5a5;
+      background: #dc2626;
+      border-color: #b91c1c;
     }
     .status-unknown {
-      color: #374151;
-      background: #e5e7eb;
-      border-color: #d1d5db;
+      background: #9ca3af;
+      border-color: #6b7280;
     }
     .table-actions {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       gap: 6px;
+      align-items: center;
     }
     .mini-btn {
       width: auto;
@@ -1110,6 +1106,10 @@ function renderOrdersList() {
       actionButtons.push(`<button class="secondary-btn mini-btn" onclick="cancelOrder(${o.id})">Bekor qilish</button>`);
     }
 
+    if (role === 'admin' && Number(o.payments_count || 0) === 0 && ['open', 'closed', 'canceled'].includes(o.status)) {
+      actionButtons.push(`<button class="mini-btn danger-btn" onclick="deleteOrderByAdmin(${o.id})" title="Buyurtmani o'chirish">🗑</button>`);
+    }
+
     return `
       <tr>
         <td>#${o.id}</td>
@@ -1130,7 +1130,7 @@ function renderOrdersList() {
         <td>${formatMoney(parseReportNumber(o.paid_amount || 0))} so'm</td>
         <td>${formatMoney(parseReportNumber(o.remaining_amount || 0))} so'm</td>
         <td>${o.payments_count || 0}</td>
-        <td><span class="status-badge ${statusClass(o.status)}">${escapeHtml(statusLabel)}</span></td>
+        <td><span class="status-badge ${statusClass(o.status)}" title="${escapeHtml(statusLabel)}"></span></td>
         <td><div class="table-actions">${actionButtons.join('')}</div></td>
       </tr>
     `;
@@ -1153,7 +1153,7 @@ function renderOrdersList() {
         <table class="report-table">
           <thead>
             <tr>
-              <th>Buyurtma ID</th>
+              <th>ID</th>
               <th>Mijoz</th>
               <th>Telefon</th>
               <th>Mahsulot</th>
@@ -1266,6 +1266,35 @@ async function adminUpdateOrderStatus(orderId, action) {
       body:JSON.stringify({tg_id:userId, action})
     });
     tg.showAlert(action === 'close' ? 'Buyurtma qabul qilindi.' : 'Buyurtma bekor qilindi.');
+    await loadOrders();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function deleteOrderByAdmin(orderId) {
+  const confirmed = await new Promise((resolve) => {
+    const text = "To'lov qo'shilmagan bo'lsa, buyurtma o'chiriladi. Davom etasizmi?";
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm(text, resolve);
+      return;
+    }
+    resolve(window.confirm(text));
+  });
+  if (!confirmed) return;
+
+  try {
+    const result = await api(`/webapp/api/orders/${orderId}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({tg_id: userId})
+    });
+    if (result.result === 'closed_marked_canceled') {
+      tg.showAlert("⚠️ Buyurtma 'Admin tomonidan bekor qilingan' holatiga o'tkazildi va mahsulot skladga qaytarildi.");
+    } else if (result.result === 'open_deleted' || result.result === 'admin_canceled_deleted') {
+      tg.showAlert("✅ Buyurtma o'chirildi.");
+    } else {
+      tg.showAlert("✅ Amal bajarildi.");
+    }
     await loadOrders();
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);

@@ -1310,6 +1310,87 @@ def delete_order(order_id: int) -> bool:
         return cur.rowcount > 0
 
 
+def admin_delete_order(order_id: int, admin_id: Optional[int]) -> tuple[bool, str]:
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                o.id,
+                o.status,
+                o.canceled_by_role,
+                o.product_id,
+                o.quantity,
+                COALESCE(p.payments_count, 0) AS payments_count
+            FROM orders o
+            LEFT JOIN (
+                SELECT order_id, COUNT(*) AS payments_count
+                FROM order_payments
+                GROUP BY order_id
+            ) p ON p.order_id = o.id
+            WHERE o.id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        if not row:
+            return False, "not_found"
+
+        payments_count = int(row["payments_count"] or 0)
+        if payments_count > 0:
+            return False, "has_payments"
+
+        status = row["status"]
+        canceled_by_role = row["canceled_by_role"]
+
+        if status == "closed":
+            qty_tons = parse_quantity_to_tons(row["quantity"])
+            if qty_tons and qty_tons > 0:
+                conn.execute(
+                    """
+                    INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(product_id) DO UPDATE SET
+                        quantity_tons = quantity_tons + excluded.quantity_tons,
+                        updated_at = excluded.updated_at
+                    """,
+                    (row["product_id"], qty_tons, now),
+                )
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'canceled',
+                    closed_at = ?,
+                    closed_by = ?,
+                    canceled_by_role = 'admin'
+                WHERE id = ?
+                """,
+                (now, admin_id, order_id),
+            )
+            return True, "closed_marked_canceled"
+
+        if status == "open":
+            qty_tons = parse_quantity_to_tons(row["quantity"])
+            if qty_tons and qty_tons > 0:
+                conn.execute(
+                    """
+                    INSERT INTO product_stock (product_id, quantity_tons, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(product_id) DO UPDATE SET
+                        quantity_tons = quantity_tons + excluded.quantity_tons,
+                        updated_at = excluded.updated_at
+                    """,
+                    (row["product_id"], qty_tons, now),
+                )
+            conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+            return True, "open_deleted"
+
+        if status == "canceled" and canceled_by_role == "admin":
+            conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+            return True, "admin_canceled_deleted"
+
+        return False, "not_allowed"
+
+
 def list_orders_for_user(user_id: int, limit: Optional[int] = None, offset: int = 0) -> Iterable[sqlite3.Row]:
     query = """
         SELECT
