@@ -527,7 +527,7 @@ const tg = {
 };
 
 const ICONS = {
-  products: '<svg viewBox="0 0 24 24"><path d="M3 7h18"></path><path d="M6 7l1 12h10l1-12"></path><path d="M9 7V5a3 3 0 0 1 6 0v2"></path></svg>',
+  products: '<svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7"></path><path d="M12 11v10"></path></svg>',
   contact: '<svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7l.5 3a2 2 0 0 1-.6 1.8l-1.2 1.2a16 16 0 0 0 4.4 4.4l1.2-1.2a2 2 0 0 1 1.8-.6l3 .5a2 2 0 0 1 1.7 2z"></path></svg>',
   stats: '<svg viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M10 19V9"></path><path d="M16 19V12"></path><path d="M22 19V3"></path></svg>',
   orders: '<svg viewBox="0 0 24 24"><path d="M9 3h6"></path><path d="M8 7h8"></path><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>',
@@ -1341,21 +1341,8 @@ async function loadOrders() {
   renderOrdersList();
 }
 
-async function renderWarehouseProductsView() {
-  const data = await api(`/webapp/api/warehouse/products?tg_id=${userId}`);
-  const cards = (data.items || []).map(item => `
-    <div class="panel">
-      <b>${item.name}</b><br>
-      Miqdor: ${Number(item.quantity_tons || 0).toLocaleString('ru-RU')} tonna<br>
-      Narx: ${formatMoney(item.price_per_kg)} so'm / kg
-    </div>
-  `).join('') || "<div class='panel'>Sklad bo'sh.</div>";
-  const root = document.getElementById('warehouseResult');
-  if (root) root.innerHTML = cards;
-}
-
 let warehouseReceiptsPage = 1;
-let warehouseReceiptsPageSize = 10;
+let warehouseReceiptsPageSize = 50;
 let warehouseStartDate = '';
 let warehouseEndDate = '';
 let warehousePaymentFilter = 'all';
@@ -1544,7 +1531,6 @@ async function loadWarehouse() {
   const options = (productsData.products || []).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   showSection(`
     <div class="panel">
-      <button class="buy-btn" onclick="renderWarehouseProductsView()">Продукты склада</button>
       <button class="secondary-btn" onclick="document.getElementById('receiptForm').classList.toggle('hidden')">Создать приход</button>
       <div id="receiptForm" class="hidden">
         <select id="receiptProduct">${options}</select>
@@ -1553,7 +1539,6 @@ async function loadWarehouse() {
         <button class="buy-btn" onclick="createWarehouseReceipt()">Saqlash</button>
       </div>
     </div>
-    <div id="warehouseResult"></div>
     <div class="panel">
       <b>Prihodlar va to'lovlar</b><br>
       <input id="warehouseStartDate" type="date" value="${warehouseStartDate}" />
@@ -1568,7 +1553,6 @@ async function loadWarehouse() {
     </div>
     <div id="warehouseReceipts"></div>
   `);
-  await renderWarehouseProductsView();
   await renderWarehouseReceiptsView();
 }
 
@@ -1898,7 +1882,7 @@ function renderRoleMenu(currentRole) {
     {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
     {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
     {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
-    {label:'Kassaviy operatsiyalar', icon:ICONS.cash, action:'loadCashbox()'},
+    {label:'Kassa', icon:ICONS.cash, action:'loadCashbox()'},
     {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
     {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
   ]);
