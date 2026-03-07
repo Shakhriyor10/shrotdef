@@ -1535,11 +1535,6 @@ async function loadWarehouse() {
         <option value="unpaid" ${warehousePaymentFilter === 'unpaid' ? 'selected' : ''}>To'lanmagan</option>
         <option value="partial" ${warehousePaymentFilter === 'partial' ? 'selected' : ''}>Qisman to'langan</option>
       </select>
-      <select id="warehouseRemainingFilter">
-        <option value="all" ${warehouseRemainingFilter === 'all' ? 'selected' : ''}>Qoldiq: barchasi</option>
-        <option value="with_remaining" ${warehouseRemainingFilter === 'with_remaining' ? 'selected' : ''}>Qoldig'i bor</option>
-        <option value="no_remaining" ${warehouseRemainingFilter === 'no_remaining' ? 'selected' : ''}>Qoldig'i yo'q</option>
-      </select>
       <button class="buy-btn" onclick="applyWarehouseReceiptFilters()">Filterni qo'llash</button>
     </div>
     <div id="warehouseReceipts"></div>
