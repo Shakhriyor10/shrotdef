@@ -150,6 +150,7 @@ media_group_buffer: dict[int, dict[str, object]] = {}
 support_reply_map: dict[tuple[int, int], int] = {}
 support_media_group_reject: set[tuple[int, str]] = set()
 admin_media_group_reject: set[tuple[int, str]] = set()
+order_stream_subscribers: set[asyncio.Queue[str]] = set()
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -547,6 +548,28 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
             )
         except Exception:
             continue
+
+
+async def publish_order_created_event(order_id: int) -> None:
+    if not order_stream_subscribers:
+        return
+    payload = json.dumps({"type": "order_created", "order_id": int(order_id)})
+    stale_subscribers: list[asyncio.Queue[str]] = []
+    for queue in list(order_stream_subscribers):
+        try:
+            queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                stale_subscribers.append(queue)
+                continue
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                stale_subscribers.append(queue)
+    for queue in stale_subscribers:
+        order_stream_subscribers.discard(queue)
 
 
 def format_order_datetime(value: str) -> str:
@@ -1361,6 +1384,19 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             return 0
         return tg_id
 
+    def get_admin_by_stream_token(request: web.Request) -> int:
+        token = (request.query.get("token") or "").strip()
+        if not token:
+            return 0
+        session = admin_web_sessions.get(token)
+        if not session:
+            return 0
+        tg_id, expires_at = session
+        if datetime.now(TASHKENT_TZ) > expires_at:
+            admin_web_sessions.pop(token, None)
+            return 0
+        return tg_id
+
     def resolve_admin_id(request: web.Request, tg_id: int) -> int:
         if is_admin(tg_id):
             return tg_id
@@ -1388,6 +1424,43 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         if not tg_id:
             return web.json_response({"error": "Unauthorized"}, status=401)
         return web.json_response({"ok": True, "tg_id": tg_id})
+
+    async def admin_orders_stream(request: web.Request) -> web.StreamResponse:
+        tg_id = get_admin_by_stream_token(request)
+        if not tg_id:
+            return web.Response(status=401, text="Unauthorized")
+
+        response = web.StreamResponse(
+            status=200,
+            reason="OK",
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+        await response.prepare(request)
+
+        queue: asyncio.Queue[str] = asyncio.Queue(maxsize=20)
+        order_stream_subscribers.add(queue)
+
+        try:
+            await response.write(b"data: {\"type\":\"connected\"}\n\n")
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=25)
+                except asyncio.TimeoutError:
+                    payload = '{"type":"ping"}'
+                await response.write(f"data: {payload}\n\n".encode("utf-8"))
+        except (ConnectionResetError, asyncio.CancelledError):
+            pass
+        finally:
+            order_stream_subscribers.discard(queue)
+            try:
+                await response.write_eof()
+            except ConnectionResetError:
+                pass
+        return response
 
     async def bootstrap(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
@@ -1603,6 +1676,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         except ValueError:
             return web.json_response({"error": "Omborda yetarli mahsulot yo'q."}, status=400)
         await notify_admins_new_order(bot, order_id)
+        await publish_order_created_event(order_id)
         return web.json_response({"ok": True, "order_id": order_id})
 
     async def order_payments_get(request: web.Request) -> web.Response:
@@ -2033,6 +2107,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/admin", serve_admin)
     app.router.add_post("/admin/api/login", admin_login)
     app.router.add_get("/admin/api/me", admin_me)
+    app.router.add_get("/admin/api/orders/stream", admin_orders_stream)
     app.router.add_static("/img", path="img", name="img")
     app.router.add_get("/webapp/api/bootstrap", bootstrap)
     app.router.add_get("/webapp/api/products", products_api)
@@ -2290,6 +2365,7 @@ async def main() -> None:
             "✅ Buyurtma tasdiqlandi!", reply_markup=user_keyboard(message.from_user.id)
         )
         await notify_admins_new_order(message.bot, order_id)
+        await publish_order_created_event(order_id)
         await state.clear()
 
     @dp.message(OrderStates.address, F.location)
@@ -2532,6 +2608,7 @@ async def main() -> None:
                 f"✅ Buyurtma yaratildi va yopildi. 🆔 ID: {order_id}",
                 reply_markup=user_keyboard(callback.from_user.id),
             )
+        await publish_order_created_event(order_id)
         await callback.answer("✅ Buyurtma yaratildi")
 
     @dp.callback_query(F.data == "admin_order_cancel")

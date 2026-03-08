@@ -585,6 +585,10 @@ let cashOperationsPage = 1;
 const CASH_OPERATIONS_PAGE_SIZE = 50;
 let cashOperationsStartDate = '';
 let cashOperationsEndDate = '';
+let activeSection = '';
+let ordersEventsSource = null;
+let ordersEventsReconnectTimer = null;
+let ordersAutoRefreshInFlight = false;
 
 function applySidebarState() {
   const collapsed = localStorage.getItem('admin_sidebar_collapsed') === '1';
@@ -662,6 +666,66 @@ function showMainMenu() {
 function showSection(html) {
   setContent(html);
   refreshTopCash();
+}
+
+function stopOrdersAutoRefresh() {
+  if (ordersEventsReconnectTimer) {
+    clearTimeout(ordersEventsReconnectTimer);
+    ordersEventsReconnectTimer = null;
+  }
+  if (ordersEventsSource) {
+    ordersEventsSource.close();
+    ordersEventsSource = null;
+  }
+  ordersAutoRefreshInFlight = false;
+}
+
+function startOrdersAutoRefresh() {
+  if (role !== 'admin' || activeSection !== 'orders') return;
+  if (!adminToken) return;
+  if (ordersEventsSource) return;
+
+  const connect = () => {
+    if (activeSection !== 'orders') return;
+    const streamUrl = `/admin/api/orders/stream?token=${encodeURIComponent(adminToken)}`;
+    const source = new EventSource(streamUrl);
+    ordersEventsSource = source;
+
+    source.onmessage = async (event) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(event.data || '{}');
+      } catch {
+        payload = null;
+      }
+      if (!payload || payload.type !== 'order_created') return;
+      if (activeSection !== 'orders') return;
+      if (ordersAutoRefreshInFlight) return;
+      ordersAutoRefreshInFlight = true;
+      try {
+        await loadOrders({preserveScroll: true});
+      } catch {
+        // no-op
+      } finally {
+        ordersAutoRefreshInFlight = false;
+      }
+    };
+
+    source.onerror = () => {
+      source.close();
+      if (ordersEventsSource === source) {
+        ordersEventsSource = null;
+      }
+      if (activeSection !== 'orders') return;
+      if (ordersEventsReconnectTimer) clearTimeout(ordersEventsReconnectTimer);
+      ordersEventsReconnectTimer = setTimeout(() => {
+        ordersEventsReconnectTimer = null;
+        startOrdersAutoRefresh();
+      }, 2000);
+    };
+  };
+
+  connect();
 }
 
 async function loginAdmin() {
@@ -761,6 +825,8 @@ async function saveProductEditModal() {
 }
 
 async function loadManageProducts() {
+  activeSection = 'products';
+  stopOrdersAutoRefresh();
   const data = await api(`/webapp/api/products?tg_id=${userId}`);
   const cards = (data.products || []).map((p) => `
     <div class="card">
@@ -777,6 +843,8 @@ async function loadManageProducts() {
 }
 
 async function loadProducts() {
+  activeSection = 'create';
+  stopOrdersAutoRefresh();
   const data = await api(`/webapp/api/products?tg_id=${userId}`);
   if (!data.products.length) return showSection('<div class="panel">Mahsulotlar yoʻq.</div>');
   showSection(`<div class="cards-grid">${data.products.map(p => `
@@ -1338,7 +1406,13 @@ async function deleteOrderByAdmin(orderId) {
   }
 }
 
-async function loadOrders() {
+async function loadOrders(options = {}) {
+  const {preserveScroll = false} = options;
+  activeSection = 'orders';
+  startOrdersAutoRefresh();
+
+  const mainArea = document.querySelector('.main-area');
+  const savedScrollTop = preserveScroll && mainArea ? mainArea.scrollTop : null;
   const data = await api(`/webapp/api/orders?tg_id=${userId}&page=${ordersPage}&page_size=${ordersPageSize}`);
   ordersCache = data.orders || [];
   ordersPagination = data.pagination || null;
@@ -1375,7 +1449,18 @@ async function loadOrders() {
     <div id="ordersList"></div>
   `);
 
+  const searchNode = document.getElementById('ordersSearch');
+  if (searchNode) searchNode.value = ordersSearchQuery;
+  const statusNode = document.getElementById('statusFilter');
+  if (statusNode) statusNode.value = ordersStatusFilter;
+  const paymentNode = document.getElementById('paymentFilter');
+  if (paymentNode) paymentNode.value = ordersPaymentFilter;
+
   renderOrdersList();
+
+  if (savedScrollTop !== null && mainArea) {
+    mainArea.scrollTop = savedScrollTop;
+  }
 }
 
 let warehouseReceiptsPage = 1;
@@ -1564,6 +1649,8 @@ function changeWarehouseReceiptsPage(delta) {
 }
 
 async function loadWarehouse() {
+  activeSection = 'warehouse';
+  stopOrdersAutoRefresh();
   const productsData = await api(`/webapp/api/products?tg_id=${userId}`);
   const options = (productsData.products || []).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   showSection(`
@@ -1594,6 +1681,8 @@ async function loadWarehouse() {
 }
 
 async function loadCashbox() {
+  activeSection = 'cash';
+  stopOrdersAutoRefresh();
   const query = new URLSearchParams({
     tg_id: String(userId),
     page: String(cashOperationsPage),
@@ -1715,6 +1804,8 @@ async function saveCashbox() {
 }
 
 async function loadStats() {
+  activeSection = 'stats';
+  stopOrdersAutoRefresh();
   const data = await api(`/webapp/api/stats?tg_id=${userId}`);
   showSection(`
     <div class="panel">
@@ -1963,6 +2054,8 @@ async function applyReportsFilter() {
 }
 
 async function loadReports() {
+  activeSection = 'reports';
+  stopOrdersAutoRefresh();
   const {startDate, endDate} = getCurrentMonthRange();
   reportsSearchQuery = '';
 
@@ -1982,6 +2075,8 @@ async function loadReports() {
 }
 
 function showContact() {
+  activeSection = 'contact';
+  stopOrdersAutoRefresh();
   showSection(`
     <div class="panel contact-list">
       <div class="contact-item">
