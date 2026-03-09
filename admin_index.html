@@ -1115,9 +1115,11 @@ function hidePreview() {
   const previewBtn = document.getElementById('previewBtn') || document.getElementById('quickPreviewBtn');
   const quickCreateBtn = document.getElementById('quickCreateBtn');
   const confirmBlock = document.getElementById('confirmBlock');
+  const quickOrderPanel = document.getElementById('quickOrderPanel');
   if (formFields) formFields.classList.remove('hidden');
   if (previewBtn) previewBtn.classList.remove('hidden');
   if (quickCreateBtn) quickCreateBtn.classList.remove('hidden');
+  updateQuickCreateButtonState(Boolean(quickOrderPanel && !quickOrderPanel.classList.contains('hidden')));
   if (!confirmBlock) return;
   confirmBlock.classList.add('hidden');
   confirmBlock.innerHTML = '';
@@ -1174,11 +1176,20 @@ let ordersPageSize = 15;
 let ordersPagination = null;
 let quickOrderProducts = [];
 
+
+function updateQuickCreateButtonState(isOpen) {
+  const button = document.getElementById('quickCreateBtn');
+  if (!button) return;
+  button.textContent = isOpen ? 'Bekor qilish' : 'Buyurtma yaratish';
+  button.classList.toggle('danger-btn', isOpen);
+}
+
 function toggleOrdersQuickCreate() {
   const panel = document.getElementById('quickOrderPanel');
   if (!panel) return;
   const shouldShow = panel.classList.contains('hidden');
   panel.classList.toggle('hidden', !shouldShow);
+  updateQuickCreateButtonState(shouldShow);
 
   if (shouldShow) {
     selectedClient = null;
