@@ -1089,9 +1089,11 @@ function previewOrder(productId, productName, productPricePerKg) {
 
   const formFields = document.getElementById('formFields') || document.getElementById('quickOrderFormFields');
   const previewBtn = document.getElementById('previewBtn') || document.getElementById('quickPreviewBtn');
+  const quickCreateBtn = document.getElementById('quickCreateBtn');
   const confirmBlock = document.getElementById('confirmBlock');
   if (formFields) formFields.classList.add('hidden');
   if (previewBtn) previewBtn.classList.add('hidden');
+  if (quickCreateBtn) quickCreateBtn.classList.add('hidden');
   if (!confirmBlock) return;
   confirmBlock.classList.remove('hidden');
   confirmBlock.innerHTML = `
@@ -1111,9 +1113,11 @@ function previewOrder(productId, productName, productPricePerKg) {
 function hidePreview() {
   const formFields = document.getElementById('formFields') || document.getElementById('quickOrderFormFields');
   const previewBtn = document.getElementById('previewBtn') || document.getElementById('quickPreviewBtn');
+  const quickCreateBtn = document.getElementById('quickCreateBtn');
   const confirmBlock = document.getElementById('confirmBlock');
   if (formFields) formFields.classList.remove('hidden');
   if (previewBtn) previewBtn.classList.remove('hidden');
+  if (quickCreateBtn) quickCreateBtn.classList.remove('hidden');
   if (!confirmBlock) return;
   confirmBlock.classList.add('hidden');
   confirmBlock.innerHTML = '';
@@ -1481,7 +1485,7 @@ async function loadOrders(options = {}) {
 
   showSection(`
     <div class="panel">
-      <button class="buy-btn" onclick="toggleOrdersQuickCreate()">Buyurtma yaratish</button>
+      <button id="quickCreateBtn" class="buy-btn" onclick="toggleOrdersQuickCreate()">Buyurtma yaratish</button>
       <div id="quickOrderPanel" class="hidden" style="margin-top:10px;">
         <div id="quickOrderFormFields">
           <select id="quickOrderProduct" onchange="onQuickOrderProductChange()">
