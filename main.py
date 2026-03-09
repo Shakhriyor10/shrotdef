@@ -543,10 +543,10 @@ async def notify_admins_new_order(bot: Bot, order_id: int) -> None:
             continue
 
 
-async def publish_order_created_event(order_id: int) -> None:
+async def publish_order_created_event(order_id: int, source: str = "unknown") -> None:
     if not order_stream_subscribers:
         return
-    payload = json.dumps({"type": "order_created", "order_id": int(order_id)})
+    payload = json.dumps({"type": "order_created", "order_id": int(order_id), "source": source})
     stale_subscribers: list[asyncio.Queue[str]] = []
     for queue in list(order_stream_subscribers):
         try:
@@ -1680,7 +1680,6 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         except ValueError:
             return web.json_response({"error": "Omborda yetarli mahsulot yo'q."}, status=400)
         await notify_admins_new_order(bot, order_id)
-        await publish_order_created_event(order_id)
         return web.json_response({"ok": True, "order_id": order_id})
 
     async def order_payments_get(request: web.Request) -> web.Response:
@@ -2376,7 +2375,7 @@ async def main() -> None:
             "✅ Buyurtma tasdiqlandi!", reply_markup=user_keyboard(message.from_user.id)
         )
         await notify_admins_new_order(message.bot, order_id)
-        await publish_order_created_event(order_id)
+        await publish_order_created_event(order_id, source="bot_user")
         await state.clear()
 
     @dp.message(OrderStates.address, F.location)
@@ -2619,7 +2618,6 @@ async def main() -> None:
                 f"✅ Buyurtma yaratildi va yopildi. 🆔 ID: {order_id}",
                 reply_markup=user_keyboard(callback.from_user.id),
             )
-        await publish_order_created_event(order_id)
         await callback.answer("✅ Buyurtma yaratildi")
 
     @dp.callback_query(F.data == "admin_order_cancel")

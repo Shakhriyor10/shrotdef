@@ -589,6 +589,30 @@ let activeSection = '';
 let ordersEventsSource = null;
 let ordersEventsReconnectTimer = null;
 let ordersAutoRefreshInFlight = false;
+let ordersAutoRefreshWindowUntil = 0;
+let ordersAutoRefreshWindowTimer = null;
+const ORDERS_AUTO_REFRESH_WINDOW_MS = 10_000;
+const ORDERS_AUTO_REFRESH_POLL_MS = 2_000;
+
+function resetAdminSession() {
+  localStorage.removeItem('admin_token');
+  adminToken = '';
+  stopOrdersAutoRefresh();
+  const overlay = document.getElementById('loginOverlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+async function hasValidAdminSession() {
+  if (!adminToken) return false;
+  try {
+    const res = await fetch('/admin/api/me', {
+      headers: {'Content-Type': 'application/json', 'X-Admin-Token': adminToken}
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 function applySidebarState() {
   const collapsed = localStorage.getItem('admin_sidebar_collapsed') === '1';
@@ -673,11 +697,56 @@ function stopOrdersAutoRefresh() {
     clearTimeout(ordersEventsReconnectTimer);
     ordersEventsReconnectTimer = null;
   }
+  if (ordersAutoRefreshWindowTimer) {
+    clearInterval(ordersAutoRefreshWindowTimer);
+    ordersAutoRefreshWindowTimer = null;
+  }
+  ordersAutoRefreshWindowUntil = 0;
   if (ordersEventsSource) {
     ordersEventsSource.close();
     ordersEventsSource = null;
   }
   ordersAutoRefreshInFlight = false;
+}
+
+async function triggerOrdersAutoRefreshTick() {
+  if (activeSection !== 'orders') return;
+  if (ordersAutoRefreshInFlight) return;
+  ordersAutoRefreshInFlight = true;
+  try {
+    await loadOrders({preserveScroll: true});
+  } catch {
+    // no-op
+  } finally {
+    ordersAutoRefreshInFlight = false;
+  }
+}
+
+function startTimedOrdersAutoRefreshWindow() {
+  if (activeSection !== 'orders') return;
+  const now = Date.now();
+  ordersAutoRefreshWindowUntil = Math.max(ordersAutoRefreshWindowUntil, now + ORDERS_AUTO_REFRESH_WINDOW_MS);
+
+  triggerOrdersAutoRefreshTick();
+
+  if (ordersAutoRefreshWindowTimer) return;
+  ordersAutoRefreshWindowTimer = setInterval(() => {
+    if (activeSection !== 'orders') {
+      clearInterval(ordersAutoRefreshWindowTimer);
+      ordersAutoRefreshWindowTimer = null;
+      ordersAutoRefreshWindowUntil = 0;
+      return;
+    }
+
+    if (Date.now() >= ordersAutoRefreshWindowUntil) {
+      clearInterval(ordersAutoRefreshWindowTimer);
+      ordersAutoRefreshWindowTimer = null;
+      ordersAutoRefreshWindowUntil = 0;
+      return;
+    }
+
+    triggerOrdersAutoRefreshTick();
+  }, ORDERS_AUTO_REFRESH_POLL_MS);
 }
 
 function startOrdersAutoRefresh() {
@@ -699,24 +768,24 @@ function startOrdersAutoRefresh() {
         payload = null;
       }
       if (!payload || payload.type !== 'order_created') return;
+      if (payload.source !== 'bot_user') return;
       if (activeSection !== 'orders') return;
-      if (ordersAutoRefreshInFlight) return;
-      ordersAutoRefreshInFlight = true;
-      try {
-        await loadOrders({preserveScroll: true});
-      } catch {
-        // no-op
-      } finally {
-        ordersAutoRefreshInFlight = false;
-      }
+      startTimedOrdersAutoRefreshWindow();
     };
 
-    source.onerror = () => {
+    source.onerror = async () => {
       source.close();
       if (ordersEventsSource === source) {
         ordersEventsSource = null;
       }
       if (activeSection !== 'orders') return;
+
+      const isSessionValid = await hasValidAdminSession();
+      if (!isSessionValid) {
+        resetAdminSession();
+        return;
+      }
+
       if (ordersEventsReconnectTimer) clearTimeout(ordersEventsReconnectTimer);
       ordersEventsReconnectTimer = setTimeout(() => {
         ordersEventsReconnectTimer = null;
@@ -754,8 +823,7 @@ async function restoreSession() {
     document.getElementById('loginOverlay').style.display = 'none';
     return true;
   } catch {
-    localStorage.removeItem('admin_token');
-    adminToken = '';
+    resetAdminSession();
     return false;
   }
 }
