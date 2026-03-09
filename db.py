@@ -27,6 +27,13 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def normalize_phone(value: str) -> str:
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if digits.startswith("998") and len(digits) >= 12:
+        return digits[-9:]
+    return digits
+
+
 def init_db() -> None:
     now = now_tashkent().isoformat()
     with get_connection() as conn:
@@ -331,6 +338,47 @@ def search_users(query: str, limit: int = 10) -> Iterable[sqlite3.Row]:
             """,
             (pattern, pattern, pattern, limit),
         ).fetchall()
+
+
+def find_user_by_phone(phone: str) -> Optional[sqlite3.Row]:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE phone IS NOT NULL AND phone != ''"
+        ).fetchall()
+    for row in rows:
+        if normalize_phone(row["phone"] or "") == normalized:
+            return row
+    return None
+
+
+def merge_users_by_phone(tg_id: int, phone: str) -> None:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return
+    with get_connection() as conn:
+        target = conn.execute(
+            "SELECT id FROM users WHERE tg_id = ?",
+            (tg_id,),
+        ).fetchone()
+        if not target:
+            return
+        target_id = int(target["id"])
+        candidates = conn.execute(
+            "SELECT id, phone, tg_id FROM users WHERE id != ? AND phone IS NOT NULL AND phone != ''",
+            (target_id,),
+        ).fetchall()
+        for candidate in candidates:
+            if normalize_phone(candidate["phone"] or "") != normalized:
+                continue
+            source_id = int(candidate["id"])
+            conn.execute(
+                "UPDATE orders SET user_id = ? WHERE user_id = ?",
+                (target_id, source_id),
+            )
+            conn.execute("DELETE FROM users WHERE id = ?", (source_id,))
 
 
 def set_user_blocked(tg_id: int, blocked: bool) -> None:
