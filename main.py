@@ -1665,19 +1665,12 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
                 selected_user = db.get_user_by_id(selected_user_id)
                 if not selected_user:
                     return web.json_response({"error": "Tanlangan mijoz topilmadi."}, status=404)
-                if client_name:
-                    db.add_or_update_user(
-                        int(selected_user["tg_id"]),
-                        client_name,
-                        selected_user["last_name"],
-                    )
                 order_user_id = selected_user["id"]
             else:
                 if not client_name or not client_phone:
                     return web.json_response({"error": "Mijoz ismi va raqami majburiy."}, status=400)
                 by_phone = db.find_user_by_phone(client_phone)
                 if by_phone:
-                    db.add_or_update_user(int(by_phone["tg_id"]), client_name, by_phone["last_name"])
                     order_user_id = int(by_phone["id"])
                 else:
                     order_user_id = db.add_manual_user(client_name, client_phone, tg_id)
