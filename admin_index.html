@@ -1087,11 +1087,12 @@ function previewOrder(productId, productName, productPricePerKg) {
     return tg.showAlert('Mijozni bazadan tanlang (ism yoki raqam orqali).');
   }
 
-  const formFields = document.getElementById('formFields');
-  const previewBtn = document.getElementById('previewBtn');
+  const formFields = document.getElementById('formFields') || document.getElementById('quickOrderFormFields');
+  const previewBtn = document.getElementById('previewBtn') || document.getElementById('quickPreviewBtn');
   const confirmBlock = document.getElementById('confirmBlock');
   if (formFields) formFields.classList.add('hidden');
   if (previewBtn) previewBtn.classList.add('hidden');
+  if (!confirmBlock) return;
   confirmBlock.classList.remove('hidden');
   confirmBlock.innerHTML = `
     <div class="summary">
@@ -1108,11 +1109,12 @@ function previewOrder(productId, productName, productPricePerKg) {
 }
 
 function hidePreview() {
-  const formFields = document.getElementById('formFields');
-  const previewBtn = document.getElementById('previewBtn');
+  const formFields = document.getElementById('formFields') || document.getElementById('quickOrderFormFields');
+  const previewBtn = document.getElementById('previewBtn') || document.getElementById('quickPreviewBtn');
   const confirmBlock = document.getElementById('confirmBlock');
   if (formFields) formFields.classList.remove('hidden');
   if (previewBtn) previewBtn.classList.remove('hidden');
+  if (!confirmBlock) return;
   confirmBlock.classList.add('hidden');
   confirmBlock.innerHTML = '';
 }
@@ -1481,21 +1483,23 @@ async function loadOrders(options = {}) {
     <div class="panel">
       <button class="buy-btn" onclick="toggleOrdersQuickCreate()">Buyurtma yaratish</button>
       <div id="quickOrderPanel" class="hidden" style="margin-top:10px;">
-        <select id="quickOrderProduct" onchange="onQuickOrderProductChange()">
-          <option value="">Mahsulotni tanlang</option>
-          ${quickOrderProducts
-            .filter((p) => p.in_stock)
-            .map((p) => `<option value="${p.id}">${escapeHtml(p.name)} — ${formatMoney(p.price_per_kg)} so'm/kg</option>`)
-            .join('')}
-        </select>
-        <div id="quickOrderStock" class="muted" style="margin-top:8px;">Sklad qoldigʻi: —</div>
-        <input id="clientName" placeholder="Mijoz ismi" oninput="onClientFieldInput()" />
-        <input id="clientPhone" placeholder="Mijoz raqami" oninput="onClientFieldInput()" />
-        <div id="clientSuggestions" class="suggestions hidden"></div>
-        <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="onQuickOrderProductChange()" />
-        <textarea id="addr" placeholder="Manzil"></textarea>
-        <div id="totalAmount" class="summary">Jami summa: —</div>
-        <button class="buy-btn" onclick="previewQuickOrder()">Yuborish</button>
+        <div id="quickOrderFormFields">
+          <select id="quickOrderProduct" onchange="onQuickOrderProductChange()">
+            <option value="">Mahsulotni tanlang</option>
+            ${quickOrderProducts
+              .filter((p) => p.in_stock)
+              .map((p) => `<option value="${p.id}">${escapeHtml(p.name)} — ${formatMoney(p.price_per_kg)} so'm/kg</option>`)
+              .join('')}
+          </select>
+          <div id="quickOrderStock" class="muted" style="margin-top:8px;">Sklad qoldigʻi: —</div>
+          <input id="clientName" placeholder="Mijoz ismi" oninput="onClientFieldInput()" />
+          <input id="clientPhone" placeholder="Mijoz raqami" oninput="onClientFieldInput()" />
+          <div id="clientSuggestions" class="suggestions hidden"></div>
+          <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="onQuickOrderProductChange()" />
+          <textarea id="addr" placeholder="Manzil"></textarea>
+          <div id="totalAmount" class="summary">Jami summa: —</div>
+        </div>
+        <button id="quickPreviewBtn" class="buy-btn" onclick="previewQuickOrder()">Yuborish</button>
         <div id="confirmBlock" class="hidden"></div>
       </div>
     </div>
