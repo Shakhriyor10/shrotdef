@@ -27,6 +27,13 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def normalize_phone(value: str) -> str:
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if digits.startswith("998") and len(digits) >= 12:
+        return digits[-9:]
+    return digits
+
+
 def init_db() -> None:
     now = now_tashkent().isoformat()
     with get_connection() as conn:
@@ -250,6 +257,8 @@ def init_db() -> None:
             (now,),
         )
 
+    merge_all_users_by_phone()
+
 
 def add_or_update_user(tg_id: int, first_name: str, last_name: Optional[str]) -> None:
     now = now_tashkent().isoformat()
@@ -331,6 +340,90 @@ def search_users(query: str, limit: int = 10) -> Iterable[sqlite3.Row]:
             """,
             (pattern, pattern, pattern, limit),
         ).fetchall()
+
+
+def find_user_by_phone(phone: str) -> Optional[sqlite3.Row]:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE phone IS NOT NULL AND phone != ''"
+        ).fetchall()
+    for row in rows:
+        if normalize_phone(row["phone"] or "") == normalized:
+            return row
+    return None
+
+
+def _choose_primary_user_id(rows: list[sqlite3.Row]) -> int:
+    def sort_key(row: sqlite3.Row) -> tuple[int, int, int]:
+        tg_id = int(row["tg_id"])
+        is_real_tg = 1 if tg_id > 0 else 0
+        activity = int(row["activity_count"] or 0)
+        return (is_real_tg, activity, -int(row["id"]))
+
+    return int(max(rows, key=sort_key)["id"])
+
+
+def _merge_users_into_target(conn: sqlite3.Connection, target_id: int, source_ids: list[int]) -> None:
+    for source_id in source_ids:
+        if source_id == target_id:
+            continue
+        conn.execute(
+            "UPDATE orders SET user_id = ? WHERE user_id = ?",
+            (target_id, source_id),
+        )
+        conn.execute("DELETE FROM users WHERE id = ?", (source_id,))
+
+
+def merge_all_users_by_phone() -> int:
+    merged_count = 0
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, tg_id, phone, activity_count FROM users WHERE phone IS NOT NULL AND phone != ''"
+        ).fetchall()
+        groups: dict[str, list[sqlite3.Row]] = {}
+        for row in rows:
+            normalized = normalize_phone(row["phone"] or "")
+            if not normalized:
+                continue
+            groups.setdefault(normalized, []).append(row)
+
+        for group_rows in groups.values():
+            if len(group_rows) < 2:
+                continue
+            target_id = _choose_primary_user_id(group_rows)
+            source_ids = [int(row["id"]) for row in group_rows if int(row["id"]) != target_id]
+            _merge_users_into_target(conn, target_id, source_ids)
+            merged_count += len(source_ids)
+
+    return merged_count
+
+
+def merge_users_by_phone(tg_id: int, phone: str) -> None:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return
+    with get_connection() as conn:
+        target = conn.execute(
+            "SELECT id FROM users WHERE tg_id = ?",
+            (tg_id,),
+        ).fetchone()
+        if not target:
+            return
+        target_id = int(target["id"])
+        group_rows = conn.execute(
+            "SELECT id, phone FROM users WHERE id != ? AND phone IS NOT NULL AND phone != ''",
+            (target_id,),
+        ).fetchall()
+        source_ids = [
+            int(row["id"])
+            for row in group_rows
+            if normalize_phone(row["phone"] or "") == normalized
+        ]
+
+        _merge_users_into_target(conn, target_id, source_ids)
 
 
 def set_user_blocked(tg_id: int, blocked: bool) -> None:

@@ -1083,8 +1083,8 @@ function previewOrder(productId, productName, productPricePerKg) {
   if (!quantity) return tg.showAlert('Iltimos, tonna miqdorini kiriting.');
   if (!address) return tg.showAlert('Iltimos, manzilni kiriting.');
   if (total === null) return tg.showAlert('Miqdor notoʻgʻri kiritildi.');
-  if (role === 'admin' && (!clientName || !clientPhone || !selectedClient)) {
-    return tg.showAlert('Mijozni bazadan tanlang (ism yoki raqam orqali).');
+  if (role === 'admin' && (!clientName || !clientPhone)) {
+    return tg.showAlert('Mijoz ismi va raqamini kiriting.');
   }
 
   const formFields = document.getElementById('formFields') || document.getElementById('quickOrderFormFields');
@@ -1128,14 +1128,20 @@ function hidePreview() {
 async function submitOrder(productId, productName, productPricePerKg) {
   const quantity = (document.getElementById('qty')?.value || '').trim();
   const address = (document.getElementById('addr')?.value || '').trim();
-  const clientInfo = role === 'admin' ? selectedClient : null;
+  const clientName = (document.getElementById('clientName')?.value || '').trim();
+  const clientPhone = (document.getElementById('clientPhone')?.value || '').trim();
+  const clientInfo = role === 'admin'
+    ? (selectedClient || {name: clientName, phone: clientPhone})
+    : null;
   try {
     const data = await api('/webapp/api/orders', {method:'POST', body:JSON.stringify({
       tg_id:userId,
       product_id:productId,
       quantity,
       address,
-      selected_user_id: clientInfo?.id || null
+      selected_user_id: selectedClient?.id || null,
+      client_name: clientName || null,
+      client_phone: clientPhone || null
     })});
     const total = calculateTotal(productPricePerKg, quantity);
     tg.showAlert(`Buyurtma qabul qilindi.\nMahsulot: ${productName}${clientInfo ? `\nMijoz: ${clientInfo.name} (${clientInfo.phone})` : ''}\nMiqdor: ${quantity} tonna\nManzil: ${address}\nUmumiy summa: ${formatMoney(total)} soʻm\nID: ${data.order_id}`);

@@ -288,14 +288,7 @@ def normalize_phone(value: str) -> str:
 
 
 def find_user_by_phone(value: str) -> Optional[sqlite3.Row]:
-    normalized = normalize_phone(value)
-    if not normalized:
-        return None
-    for user in db.list_users():
-        user_phone = normalize_phone(user["phone"] or "")
-        if user_phone == normalized:
-            return user
-    return None
+    return db.find_user_by_phone(value)
 
 
 def format_user_contact(first_name: Optional[str], last_name: Optional[str], phone: Optional[str]) -> str:
@@ -1655,6 +1648,8 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         quantity = parse_webapp_quantity(str(payload.get("quantity") or ""))
         address = (payload.get("address") or "").strip()
         selected_user_id = int(payload.get("selected_user_id") or 0)
+        client_name = str(payload.get("client_name") or "").strip()
+        client_phone = str(payload.get("client_phone") or "").strip()
         if not quantity:
             return web.json_response({"error": "Minimal buyurtma 2 tonna."}, status=400)
         if not address:
@@ -1665,11 +1660,20 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
             return web.json_response({"error": "Foydalanuvchi yoki mahsulot topilmadi."}, status=404)
 
         order_user_id = requester["id"]
-        if is_admin(tg_id) and selected_user_id > 0:
-            selected_user = db.get_user_by_id(selected_user_id)
-            if not selected_user:
-                return web.json_response({"error": "Tanlangan mijoz topilmadi."}, status=404)
-            order_user_id = selected_user["id"]
+        if is_admin(tg_id):
+            if selected_user_id > 0:
+                selected_user = db.get_user_by_id(selected_user_id)
+                if not selected_user:
+                    return web.json_response({"error": "Tanlangan mijoz topilmadi."}, status=404)
+                order_user_id = selected_user["id"]
+            else:
+                if not client_name or not client_phone:
+                    return web.json_response({"error": "Mijoz ismi va raqami majburiy."}, status=400)
+                by_phone = db.find_user_by_phone(client_phone)
+                if by_phone:
+                    order_user_id = int(by_phone["id"])
+                else:
+                    order_user_id = db.add_manual_user(client_name, client_phone, tg_id)
 
         try:
             order_id = db.add_order(order_user_id, product_id, quantity, address, product["price_per_kg"])
@@ -2167,6 +2171,7 @@ async def main() -> None:
         )
         user = db.get_user_by_tg_id(message.from_user.id)
         if user and user["phone"]:
+            db.merge_users_by_phone(message.from_user.id, user["phone"])
             await message.answer(
                 "👋 Xush kelibsiz!",
                 reply_markup=user_keyboard(message.from_user.id),
@@ -2186,7 +2191,13 @@ async def main() -> None:
         if not message.contact or message.contact.user_id != message.from_user.id:
             await message.answer("⚠️ Iltimos, o'zingizning raqamingizni yuboring.")
             return
+        db.add_or_update_user(
+            message.from_user.id,
+            message.from_user.first_name,
+            message.from_user.last_name,
+        )
         db.update_user_phone(message.from_user.id, message.contact.phone_number)
+        db.merge_users_by_phone(message.from_user.id, message.contact.phone_number)
         await message.answer(
             "✅ Rahmat! Endi botdan foydalanishingiz mumkin.",
             reply_markup=user_keyboard(message.from_user.id),
