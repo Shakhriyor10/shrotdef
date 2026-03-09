@@ -2190,6 +2190,11 @@ async def main() -> None:
         if not message.contact or message.contact.user_id != message.from_user.id:
             await message.answer("⚠️ Iltimos, o'zingizning raqamingizni yuboring.")
             return
+        db.add_or_update_user(
+            message.from_user.id,
+            message.from_user.first_name,
+            message.from_user.last_name,
+        )
         db.update_user_phone(message.from_user.id, message.contact.phone_number)
         db.merge_users_by_phone(message.from_user.id, message.contact.phone_number)
         await message.answer(
