@@ -589,7 +589,6 @@ let activeSection = '';
 let ordersEventsSource = null;
 let ordersEventsReconnectTimer = null;
 let ordersAutoRefreshInFlight = false;
-const ORDERS_AUTO_REFRESH_ENABLED = false;
 
 function applySidebarState() {
   const collapsed = localStorage.getItem('admin_sidebar_collapsed') === '1';
@@ -682,7 +681,6 @@ function stopOrdersAutoRefresh() {
 }
 
 function startOrdersAutoRefresh() {
-  if (!ORDERS_AUTO_REFRESH_ENABLED) return;
   if (role !== 'admin' || activeSection !== 'orders') return;
   if (!adminToken) return;
   if (ordersEventsSource) return;
@@ -701,6 +699,7 @@ function startOrdersAutoRefresh() {
         payload = null;
       }
       if (!payload || payload.type !== 'order_created') return;
+      if (payload.source !== 'bot_user') return;
       if (activeSection !== 'orders') return;
       if (ordersAutoRefreshInFlight) return;
       ordersAutoRefreshInFlight = true;
