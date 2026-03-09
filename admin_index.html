@@ -1174,12 +1174,7 @@ function previewOrder(productId, productName, productPricePerKg) {
   confirmBlock.classList.remove('hidden');
   confirmBlock.innerHTML = `
     <div class="summary">
-      <b>Tasdiqlashdan oldin tekshiring:</b><br>
-      Mahsulot: <b>${productName}</b><br>
-      ${role === 'admin' ? `Mijoz: <b>${clientName}</b><br>Telefon: <b>${clientPhone}</b><br>` : ''}
-      Miqdor: <b>${quantity} tonna</b><br>
-      Manzil: <b>${address}</b><br>
-      Umumiy summa: <b>${formatMoney(total)} soʻm</b>
+      <b>Tasdiqlashdan oldin tekshiring:</b>
     </div>
     <button class="buy-btn" onclick="submitOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Tasdiqlash va buyurtma yaratish</button>
     <button class="secondary-btn" onclick="hidePreview()">Tahrirlash</button>
