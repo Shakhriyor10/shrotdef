@@ -2171,6 +2171,7 @@ async def main() -> None:
         )
         user = db.get_user_by_tg_id(message.from_user.id)
         if user and user["phone"]:
+            db.merge_users_by_phone(message.from_user.id, user["phone"])
             await message.answer(
                 "👋 Xush kelibsiz!",
                 reply_markup=user_keyboard(message.from_user.id),
