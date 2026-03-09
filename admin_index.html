@@ -1166,6 +1166,52 @@ let ordersPaymentFilter = 'all';
 let ordersPage = 1;
 let ordersPageSize = 15;
 let ordersPagination = null;
+let quickOrderProducts = [];
+
+function toggleOrdersQuickCreate() {
+  const panel = document.getElementById('quickOrderPanel');
+  if (!panel) return;
+  const shouldShow = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !shouldShow);
+
+  if (shouldShow) {
+    selectedClient = null;
+    clientSearchSeq += 1;
+    const select = document.getElementById('quickOrderProduct');
+    if (select && quickOrderProducts.length && !select.value) {
+      select.value = String(quickOrderProducts[0].id);
+    }
+    onQuickOrderProductChange();
+  }
+}
+
+function onQuickOrderProductChange() {
+  const selectNode = document.getElementById('quickOrderProduct');
+  const stockNode = document.getElementById('quickOrderStock');
+  const productId = Number(selectNode?.value || 0);
+  const product = quickOrderProducts.find((item) => Number(item.id) === productId);
+  if (!stockNode) return;
+
+  if (!product) {
+    stockNode.textContent = 'Sklad qoldigʻi: —';
+    updateOrderTotal(0);
+    return;
+  }
+
+  stockNode.textContent = `Sklad qoldigʻi: ${Number(product.stock_tons || 0).toLocaleString('ru-RU')} tonna`;
+  updateOrderTotal(Number(product.price_per_kg || 0));
+}
+
+function previewQuickOrder() {
+  const selectNode = document.getElementById('quickOrderProduct');
+  const productId = Number(selectNode?.value || 0);
+  const product = quickOrderProducts.find((item) => Number(item.id) === productId);
+  if (!product) {
+    tg.showAlert('Iltimos, mahsulotni tanlang.');
+    return;
+  }
+  previewOrder(product.id, product.name, Number(product.price_per_kg || 0));
+}
 
 function renderOrdersList() {
   const filtered = ordersCache.filter((order) => {
@@ -1414,8 +1460,10 @@ async function loadOrders(options = {}) {
   const mainArea = document.querySelector('.main-area');
   const savedScrollTop = preserveScroll && mainArea ? mainArea.scrollTop : null;
   const data = await api(`/webapp/api/orders?tg_id=${userId}&page=${ordersPage}&page_size=${ordersPageSize}`);
+  const productsData = await api(`/webapp/api/products?tg_id=${userId}`);
   ordersCache = data.orders || [];
   ordersPagination = data.pagination || null;
+  quickOrderProducts = productsData.products || [];
 
   const searchPlaceholder = role === 'admin'
     ? 'Qidirish: mijoz ismi yoki telefon...'
@@ -1430,6 +1478,27 @@ async function loadOrders(options = {}) {
   }
 
   showSection(`
+    <div class="panel">
+      <button class="buy-btn" onclick="toggleOrdersQuickCreate()">Buyurtma yaratish</button>
+      <div id="quickOrderPanel" class="hidden" style="margin-top:10px;">
+        <select id="quickOrderProduct" onchange="onQuickOrderProductChange()">
+          <option value="">Mahsulotni tanlang</option>
+          ${quickOrderProducts
+            .filter((p) => p.in_stock)
+            .map((p) => `<option value="${p.id}">${escapeHtml(p.name)} — ${formatMoney(p.price_per_kg)} so'm/kg</option>`)
+            .join('')}
+        </select>
+        <div id="quickOrderStock" class="muted" style="margin-top:8px;">Sklad qoldigʻi: —</div>
+        <input id="clientName" placeholder="Mijoz ismi" oninput="onClientFieldInput()" />
+        <input id="clientPhone" placeholder="Mijoz raqami" oninput="onClientFieldInput()" />
+        <div id="clientSuggestions" class="suggestions hidden"></div>
+        <input id="qty" placeholder="Miqdor (tonna, masalan: 2.5)" oninput="onQuickOrderProductChange()" />
+        <textarea id="addr" placeholder="Manzil"></textarea>
+        <div id="totalAmount" class="summary">Jami summa: —</div>
+        <button class="buy-btn" onclick="previewQuickOrder()">Yuborish</button>
+        <div id="confirmBlock" class="hidden"></div>
+      </div>
+    </div>
     <div class="filters panel">
       <input id="ordersSearch" placeholder="${searchPlaceholder}" oninput="onOrdersSearchInput(this.value)" />
       <div class="filter-row">
