@@ -147,6 +147,54 @@
       transition: all .2s ease;
     }
 
+    .menu-group {
+      display: grid;
+      gap: 8px;
+    }
+
+    .menu-btn-expand {
+      justify-content: space-between;
+    }
+
+    .menu-btn-expand .menu-main {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .menu-arrow {
+      color: var(--hint-color);
+      transition: transform .2s ease;
+      font-size: 14px;
+    }
+
+    .menu-group.open .menu-arrow {
+      transform: rotate(180deg);
+    }
+
+    .submenu {
+      display: grid;
+      gap: 8px;
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      transition: max-height .25s ease, opacity .2s ease;
+      padding-left: 18px;
+    }
+
+    .menu-group.open .submenu {
+      max-height: 180px;
+      opacity: 1;
+    }
+
+    .submenu .menu-btn {
+      min-height: 50px;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 10px 12px;
+    }
+
     body.sidebar-collapsed .container {
       grid-template-columns: 86px minmax(0, 1fr);
     }
@@ -830,12 +878,43 @@ async function restoreSession() {
 
 function renderMenu(items) {
   const menu = document.getElementById('menu');
-  menu.innerHTML = items.map(i => `
-    <button class="menu-btn" onclick="${i.action}">
-      <span class="icon">${i.icon}</span>
-      <span>${i.label}</span>
-    </button>
-  `).join('');
+  menu.innerHTML = items.map((i, idx) => {
+    if (Array.isArray(i.children) && i.children.length) {
+      const groupId = `menuGroup${idx}`;
+      return `
+        <div id="${groupId}" class="menu-group">
+          <button class="menu-btn menu-btn-expand" onclick="toggleMenuGroup('${groupId}')">
+            <span class="menu-main">
+              <span class="icon">${i.icon}</span>
+              <span>${i.label}</span>
+            </span>
+            <span class="menu-arrow">▼</span>
+          </button>
+          <div class="submenu">
+            ${i.children.map((child) => `
+              <button class="menu-btn" onclick="${child.action}">
+                <span class="icon">${child.icon || ''}</span>
+                <span>${child.label}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <button class="menu-btn" onclick="${i.action}">
+        <span class="icon">${i.icon}</span>
+        <span>${i.label}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+function toggleMenuGroup(groupId) {
+  const node = document.getElementById(groupId);
+  if (!node) return;
+  node.classList.toggle('open');
 }
 
 async function openProductEditModal(productId) {
@@ -1166,12 +1245,7 @@ function previewOrder(productId, productName, productPricePerKg) {
   confirmBlock.classList.remove('hidden');
   confirmBlock.innerHTML = `
     <div class="summary">
-      <b>Tasdiqlashdan oldin tekshiring:</b><br>
-      Mahsulot: <b>${productName}</b><br>
-      ${role === 'admin' ? `Mijoz: <b>${clientName}</b><br>Telefon: <b>${clientPhone}</b><br>` : ''}
-      Miqdor: <b>${quantity} tonna</b><br>
-      Manzil: <b>${address}</b><br>
-      Umumiy summa: <b>${formatMoney(total)} soʻm</b>
+      <b>Tasdiqlashdan oldin tekshiring:</b>
     </div>
     <button class="buy-btn" onclick="submitOrder(${productId}, '${productName.replace(/'/g, "\\'")}', ${productPricePerKg})">Tasdiqlash va buyurtma yaratish</button>
     <button class="secondary-btn" onclick="hidePreview()">Tahrirlash</button>
@@ -2263,9 +2337,15 @@ function showContact() {
 function renderRoleMenu(currentRole) {
   renderMenu([
     {label:'Mahsulotlar', icon:ICONS.products, action:'loadManageProducts()'},
-    {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
     {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
-    {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'},
+    {
+      label:'Buyurtmalar',
+      icon:ICONS.orders,
+      children:[
+        {label:"Buyurtmalar ro\'yxati", icon:ICONS.orders, action:'loadOrders()'},
+        {label:'Buyurtma yaratish', icon:ICONS.create, action:'loadProducts()'}
+      ]
+    },
     {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
     {label:'Kassa', icon:ICONS.cash, action:'loadCashbox()'},
     {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
