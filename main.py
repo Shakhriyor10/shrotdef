@@ -1986,6 +1986,126 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
         db.set_cashbox_amount(amount)
         return web.json_response({"ok": True, "amount": amount})
 
+
+    async def employees_get_api(request: web.Request) -> web.Response:
+        tg_id = parse_tg_id(request.query.get("tg_id"))
+        if not resolve_admin_id(request, tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        employees = [
+            {
+                "id": int(row["id"]),
+                "name": row["name"],
+                "position": row["position"],
+                "created_at": row["created_at"],
+            }
+            for row in db.list_employees()
+        ]
+        return web.json_response({"employees": employees})
+
+    async def employees_add_api(request: web.Request) -> web.Response:
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not resolve_admin_id(request, tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+        name = str(payload.get("name") or "").strip()
+        position = str(payload.get("position") or "").strip()
+        try:
+            employee_id = db.add_employee(name, position, tg_id)
+        except ValueError as exc:
+            code = str(exc)
+            if code == "name_required":
+                return web.json_response({"error": "Xodim ismini kiriting."}, status=400)
+            if code == "position_required":
+                return web.json_response({"error": "Lavozimni kiriting."}, status=400)
+            return web.json_response({"error": "Ma'lumotlar noto'g'ri."}, status=400)
+        return web.json_response({"ok": True, "employee_id": employee_id})
+
+    async def expenses_get_api(request: web.Request) -> web.Response:
+        tg_id = parse_tg_id(request.query.get("tg_id"))
+        if not resolve_admin_id(request, tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        page = int(request.query.get("page", "1") or 1)
+        page_size = int(request.query.get("page_size", "50") or 50)
+        start_date = (request.query.get("start_date") or "").strip()
+        end_date = (request.query.get("end_date") or "").strip()
+
+        page = max(page, 1)
+        page_size = max(min(page_size, 200), 1)
+
+        expenses_rows, total = db.list_expenses_paginated(
+            page=page,
+            page_size=page_size,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        expenses = [
+            {
+                "id": int(row["id"]),
+                "category": row["category"],
+                "employee_id": int(row["employee_id"]) if row["employee_id"] is not None else None,
+                "employee_name": row["employee_name"] or "",
+                "employee_position": row["employee_position"] or "",
+                "amount": float(row["amount"]),
+                "amount_label": format_money_with_commas(float(row["amount"])),
+                "comment": row["comment"] or "",
+                "created_at": row["created_at"],
+            }
+            for row in expenses_rows
+        ]
+        total_pages = max(1, math.ceil(total / page_size)) if total else 1
+        return web.json_response(
+            {
+                "expenses": expenses,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": total_pages,
+                    "has_prev": page > 1,
+                    "has_next": page < total_pages,
+                },
+                "filters": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            }
+        )
+
+    async def expenses_add_api(request: web.Request) -> web.Response:
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not resolve_admin_id(request, tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        category = str(payload.get("category") or "").strip().lower()
+        amount = float(payload.get("amount") or 0)
+        employee_id_raw = payload.get("employee_id")
+        employee_id = int(employee_id_raw) if employee_id_raw not in (None, "") else None
+        comment = str(payload.get("comment") or "").strip()
+
+        try:
+            expense_id = db.add_expense(
+                category=category,
+                amount=amount,
+                created_by=tg_id,
+                employee_id=employee_id,
+                comment=comment,
+            )
+        except LookupError:
+            return web.json_response({"error": "Xodim topilmadi yoki faol emas."}, status=404)
+        except ValueError as exc:
+            code = str(exc)
+            mapping = {
+                "invalid_category": "Xarajat turini tanlang.",
+                "invalid_amount": "Summa 0 dan katta bo'lishi kerak.",
+                "employee_required": "Ish haqi uchun xodimni tanlang.",
+                "comment_required": "Izoh yoki sabab kiriting.",
+            }
+            return web.json_response({"error": mapping.get(code, "Ma'lumotlar noto'g'ri.")}, status=400)
+
+        return web.json_response({"ok": True, "expense_id": expense_id})
+
     async def stats_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not resolve_admin_id(request, tg_id):
@@ -2133,6 +2253,10 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/webapp/api/warehouse/receipts/{receipt_id}/delete", warehouse_receipt_delete)
     app.router.add_get("/webapp/api/cashbox", cashbox_get_api)
     app.router.add_post("/webapp/api/cashbox", cashbox_set_api)
+    app.router.add_get("/webapp/api/employees", employees_get_api)
+    app.router.add_post("/webapp/api/employees", employees_add_api)
+    app.router.add_get("/webapp/api/expenses", expenses_get_api)
+    app.router.add_post("/webapp/api/expenses", expenses_add_api)
     app.router.add_get("/webapp/api/stats", stats_api)
     app.router.add_get("/webapp/api/reports", reports_api)
     app.router.add_post("/webapp/api/reports/send-pdf", reports_send_pdf_api)

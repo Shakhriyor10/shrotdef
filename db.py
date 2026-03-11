@@ -164,6 +164,32 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS employees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                position TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                created_by INTEGER,
+                is_active INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                employee_id INTEGER,
+                amount REAL NOT NULL,
+                comment TEXT,
+                created_at TEXT NOT NULL,
+                created_by INTEGER,
+                FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE SET NULL
+            )
+            """
+        )
         try:
             conn.execute(
                 "ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'open'"
@@ -218,6 +244,191 @@ def init_db() -> None:
             )
         except sqlite3.OperationalError:
             pass
+
+
+
+        try:
+            conn.execute(
+                "ALTER TABLE products ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("UPDATE orders SET status = 'open' WHERE status IS NULL")
+        conn.execute(
+            """
+            UPDATE orders
+            SET order_price_per_kg = (
+                SELECT price_per_kg FROM products WHERE products.id = orders.product_id
+            )
+            WHERE order_price_per_kg IS NULL
+            """
+        )
+        conn.execute(
+            """
+            UPDATE orders
+            SET canceled_by_role = CASE
+                WHEN closed_by IS NULL THEN 'user'
+                ELSE 'admin'
+            END
+            WHERE status = 'canceled' AND canceled_by_role IS NULL
+            """
+        )
+        conn.execute(
+            "UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE users SET last_active = COALESCE(NULLIF(last_active, ''), created_at, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO cashbox (id, amount, updated_at) VALUES (1, 0, ?)",
+            (now,),
+        )
+
+    merge_all_users_by_phone()
+
+
+def list_employees() -> Iterable[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, name, position, created_at
+            FROM employees
+            WHERE is_active = 1
+            ORDER BY id DESC
+            """
+        ).fetchall()
+
+
+def add_employee(name: str, position: str, created_by: Optional[int]) -> int:
+    clean_name = str(name or "").strip()
+    clean_position = str(position or "").strip()
+    if not clean_name:
+        raise ValueError("name_required")
+    if not clean_position:
+        raise ValueError("position_required")
+
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO employees (name, position, created_at, created_by)
+            VALUES (?, ?, ?, ?)
+            """,
+            (clean_name, clean_position, now, created_by),
+        )
+        return int(cur.lastrowid)
+
+
+def list_expenses_paginated(
+    page: int = 1,
+    page_size: int = 50,
+    start_date: str = "",
+    end_date: str = "",
+) -> tuple[list[sqlite3.Row], int]:
+    safe_page = max(int(page or 1), 1)
+    safe_page_size = max(min(int(page_size or 50), 200), 1)
+    offset = (safe_page - 1) * safe_page_size
+
+    clauses: list[str] = []
+    params: list[object] = []
+    if start_date:
+        clauses.append("date(expenses.created_at) >= date(?)")
+        params.append(start_date)
+    if end_date:
+        clauses.append("date(expenses.created_at) <= date(?)")
+        params.append(end_date)
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with get_connection() as conn:
+        total_row = conn.execute(
+            f"SELECT COUNT(*) AS total FROM expenses {where_sql}",
+            tuple(params),
+        ).fetchone()
+        rows = conn.execute(
+            f"""
+            SELECT
+                expenses.id,
+                expenses.category,
+                expenses.employee_id,
+                expenses.amount,
+                expenses.comment,
+                expenses.created_at,
+                employees.name AS employee_name,
+                employees.position AS employee_position
+            FROM expenses
+            LEFT JOIN employees ON employees.id = expenses.employee_id
+            {where_sql}
+            ORDER BY datetime(expenses.created_at) DESC, expenses.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple([*params, safe_page_size, offset]),
+        ).fetchall()
+
+    return rows, int(total_row["total"] if total_row else 0)
+
+
+def add_expense(
+    category: str,
+    amount: float,
+    created_by: Optional[int],
+    employee_id: Optional[int] = None,
+    comment: str = "",
+) -> int:
+    clean_category = str(category or "").strip().lower()
+    if clean_category not in {"salary", "other"}:
+        raise ValueError("invalid_category")
+    if amount <= 0:
+        raise ValueError("invalid_amount")
+
+    clean_comment = str(comment or "").strip()
+    now = now_tashkent().isoformat()
+
+    with get_connection() as conn:
+        safe_employee_id = None
+        if clean_category == "salary":
+            if not employee_id:
+                raise ValueError("employee_required")
+            employee_row = conn.execute(
+                "SELECT id, name, position FROM employees WHERE id = ? AND is_active = 1",
+                (employee_id,),
+            ).fetchone()
+            if not employee_row:
+                raise LookupError("employee_not_found")
+            safe_employee_id = int(employee_row["id"])
+            if not clean_comment:
+                clean_comment = (
+                    f"Ish haqi: {employee_row['name']} ({employee_row['position']})"
+                )
+        elif not clean_comment:
+            raise ValueError("comment_required")
+
+        cur = conn.execute(
+            """
+            INSERT INTO expenses (category, employee_id, amount, comment, created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (clean_category, safe_employee_id, amount, clean_comment, now, created_by),
+        )
+
+        conn.execute(
+            "UPDATE cashbox SET amount = amount - ?, updated_at = ? WHERE id = 1",
+            (amount, now),
+        )
+        _add_cashbox_operation(
+            conn,
+            operation_type="expense",
+            amount=amount,
+            reason="salary_expense" if clean_category == "salary" else "other_expense",
+            note=clean_comment,
+            reference_type="expense",
+            reference_id=int(cur.lastrowid),
+            created_at=now,
+            created_by=created_by,
+        )
+        return int(cur.lastrowid)
         try:
             conn.execute(
                 "ALTER TABLE products ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0"
