@@ -2034,7 +2034,7 @@ async function addEmployee() {
   const position = String(document.getElementById('employeePosition')?.value || '').trim();
   try {
     await api('/webapp/api/employees', {method:'POST', body:JSON.stringify({tg_id:userId, name, position})});
-    tg.showAlert('✅ Xodim qo'shildi');
+    tg.showAlert("✅ Xodim qo'shildi");
     await loadEmployees();
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);
@@ -2066,7 +2066,7 @@ async function loadExpenses() {
         <option value="salary">Зарплата сотрудникам</option>
         <option value="other">Прочие расходы</option>
       </select>
-      <select id="expenseEmployee">${employeeOptions || '<option value="">Xodim yo'q</option>'}</select>
+      <select id="expenseEmployee">${employeeOptions || "<option value=''>Xodim yo'q</option>"}</select>
       <input id="expenseAmount" type="number" step="0.01" placeholder="Summa" />
       <input id="expenseComment" placeholder="Sabab / kommentariya" />
       <button class="buy-btn" onclick="addExpense()">Xarajatni saqlash</button>
@@ -2106,7 +2106,7 @@ async function addExpense() {
   const comment = String(document.getElementById('expenseComment')?.value || '').trim();
   try {
     await api('/webapp/api/expenses', {method:'POST', body:JSON.stringify({tg_id:userId, category, employee_id, amount, comment})});
-    tg.showAlert('✅ Xarajat qo'shildi');
+    tg.showAlert("✅ Xarajat qo'shildi");
     await loadExpenses();
     await refreshTopCash();
   } catch (e) {
