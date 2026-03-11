@@ -534,6 +534,13 @@
       <button class="secondary-btn" onclick="closeAddressModal()">Yopish</button>
     </div>
   </div>
+  <div id="textPreviewModal" class="cash-modal" onclick="closeTextPreviewModal(event)">
+    <div class="panel cash-modal-card" onclick="event.stopPropagation()">
+      <h3>To'liq izoh</h3>
+      <div id="textPreviewModalText" class="summary" style="margin-top:0;white-space:normal;word-break:break-word;"></div>
+      <button class="secondary-btn" onclick="closeTextPreviewModal()">Yopish</button>
+    </div>
+  </div>
   <div class="app-shell">
     <header>
       <div class="brand">
@@ -568,7 +575,9 @@ const ICONS = {
   reports: '<svg viewBox="0 0 24 24"><path d="M4 19h16"></path><path d="M7 16l3-3 3 2 4-5"></path><path d="M7 8h.01"></path></svg>',
   myOrders: '<svg viewBox="0 0 24 24"><path d="M3 7h18"></path><path d="M5 7l1 12h12l1-12"></path><path d="M9 11h6"></path><path d="M9 15h4"></path></svg>',
   warehouse: '<svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6"></path><path d="M4 10h16v10H4z"></path><path d="M9 20v-6h6v6"></path></svg>',
-  cash: '<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle></svg>'
+  cash: '<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle></svg>',
+  expenses: '<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"></path><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>',
+  employees: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"></circle><path d="M3 19a6 6 0 0 1 12 0"></path><circle cx="17" cy="9" r="2.5"></circle><path d="M14 19a5 5 0 0 1 7 0"></path></svg>'
   ,phone: '<svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7l.5 3a2 2 0 0 1-.6 1.8l-1.2 1.2a16 16 0 0 0 4.4 4.4l1.2-1.2a2 2 0 0 1 1.8-.6l3 .5a2 2 0 0 1 1.7 2z"></path></svg>'
   ,location: '<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.2-6-11a6 6 0 1 1 12 0c0 5.8-6 11-6 11z"></path><circle cx="12" cy="10" r="2"></circle></svg>'
 };
@@ -585,6 +594,10 @@ let cashOperationsPage = 1;
 const CASH_OPERATIONS_PAGE_SIZE = 50;
 let cashOperationsStartDate = '';
 let cashOperationsEndDate = '';
+let expensesPage = 1;
+const EXPENSES_PAGE_SIZE = 50;
+let expensesStartDate = '';
+let expensesEndDate = '';
 let activeSection = '';
 let ordersEventsSource = null;
 let ordersEventsReconnectTimer = null;
@@ -1018,6 +1031,25 @@ function openAddressModalFromBtn(button) {
 function closeAddressModal(event) {
   if (event && event.target && event.target.id !== 'addressModal') return;
   const modal = document.getElementById('addressModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function openTextPreviewModal(text) {
+  const content = String(text || '').trim();
+  const box = document.getElementById('textPreviewModalText');
+  if (box) box.textContent = content || '—';
+  const modal = document.getElementById('textPreviewModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function openTextPreviewModalFromBtn(btn) {
+  const raw = btn?.dataset?.text || '';
+  openTextPreviewModal(decodeURIComponent(raw));
+}
+
+function closeTextPreviewModal(event) {
+  if (event && event.target && event.target.id !== 'textPreviewModal') return;
+  const modal = document.getElementById('textPreviewModal');
   if (modal) modal.style.display = 'none';
 }
 
@@ -1863,13 +1895,17 @@ async function loadCashbox() {
     const typeTitle = op.operation_type === 'income' ? 'Kirim' : 'Chiqim';
     const noteText = op.note || op.reason || '—';
     const rowNumber = (Number(pagination.page || 1) - 1) * Number(pagination.page_size || CASH_OPERATIONS_PAGE_SIZE) + idx + 1;
+    const shortNote = noteText.length > 7 ? `${escapeHtml(noteText.slice(0, 7))}...` : escapeHtml(noteText);
+    const noteCell = noteText.length > 7
+      ? `${shortNote} <button class="eye-btn" title="To'liq izoh" data-text="${encodeURIComponent(String(noteText))}" onclick="openTextPreviewModalFromBtn(this)">👁</button>`
+      : shortNote;
     return `
       <tr>
         <td>${rowNumber}</td>
         <td>${formatDateTime(op.created_at)}</td>
         <td><span class="status-badge ${typeClass}" title="${typeTitle}"></span></td>
         <td>${sign}${escapeHtml(op.amount_label)} so'm</td>
-        <td style="white-space:normal;word-break:break-word;max-width:320px;">${escapeHtml(noteText)}</td>
+        <td style="white-space:normal;word-break:break-word;max-width:320px;">${noteCell}</td>
       </tr>
     `;
   }).join('');
@@ -1963,6 +1999,138 @@ async function saveCashbox() {
   } catch (e) {
     tg.showAlert('Xato: ' + e.message);
   }
+}
+
+
+async function loadEmployees() {
+  activeSection = 'employees';
+  stopOrdersAutoRefresh();
+  const data = await api(`/webapp/api/employees?tg_id=${userId}`);
+  const rows = (data.employees || []).map((emp, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(emp.name || '')}</td>
+      <td>${escapeHtml(emp.position || '')}</td>
+      <td>${formatDateTime(emp.created_at)}</td>
+    </tr>
+  `).join('');
+
+  showSection(`
+    <div class="panel">
+      <b>Xodim qo'shish</b>
+      <input id="employeeName" placeholder="Xodim ismi" />
+      <input id="employeePosition" placeholder="Lavozimi" />
+      <button class="buy-btn" onclick="addEmployee()">Saqlash</button>
+    </div>
+    <div class="panel">
+      <b>Сотрудники (Xodimlar)</b>
+      ${rows ? `<div class="table-wrap"><table class="report-table"><thead><tr><th>#</th><th>Ism</th><th>Lavozim</th><th>Sana</th></tr></thead><tbody>${rows}</tbody></table></div>` : "Xodimlar hali yo'q."}
+    </div>
+  `);
+}
+
+async function addEmployee() {
+  const name = String(document.getElementById('employeeName')?.value || '').trim();
+  const position = String(document.getElementById('employeePosition')?.value || '').trim();
+  try {
+    await api('/webapp/api/employees', {method:'POST', body:JSON.stringify({tg_id:userId, name, position})});
+    tg.showAlert("✅ Xodim qo'shildi");
+    await loadEmployees();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function loadExpenses() {
+  activeSection = 'expenses';
+  stopOrdersAutoRefresh();
+  const employeesData = await api(`/webapp/api/employees?tg_id=${userId}`);
+  const query = new URLSearchParams({tg_id:String(userId), page:String(expensesPage), page_size:String(EXPENSES_PAGE_SIZE)});
+  if (expensesStartDate) query.set('start_date', expensesStartDate);
+  if (expensesEndDate) query.set('end_date', expensesEndDate);
+  const data = await api(`/webapp/api/expenses?${query.toString()}`);
+  const employeeOptions = (employeesData.employees || []).map((emp)=>`<option value="${emp.id}">${escapeHtml(emp.name)} — ${escapeHtml(emp.position)}</option>`).join('');
+  const pagination = data.pagination || {};
+  const rows = (data.expenses || []).map((ex, idx) => {
+    const label = ex.category === 'salary' ? `Ish haqi: ${ex.employee_name || '—'}` : 'Boshqa xarajat';
+    const comment = String(ex.comment || '');
+    const short = comment.length > 7 ? `${escapeHtml(comment.slice(0, 7))}...` : escapeHtml(comment || '—');
+    const commentCell = comment.length > 7 ? `${short} <button class="eye-btn" data-text="${encodeURIComponent(comment)}" onclick="openTextPreviewModalFromBtn(this)">👁</button>` : short;
+    return `<tr><td>${(Number(pagination.page||1)-1)*Number(pagination.page_size||EXPENSES_PAGE_SIZE)+idx+1}</td><td>${formatDateTime(ex.created_at)}</td><td>${escapeHtml(label)}</td><td>${escapeHtml(ex.amount_label)} so'm</td><td>${commentCell}</td></tr>`;
+  }).join('');
+
+  showSection(`
+    <div class="panel">
+      <b>Расходы (Xarajatlar)</b>
+      <select id="expenseCategory" onchange="onExpenseCategoryChange()">
+        <option value="salary">Зарплата сотрудникам</option>
+        <option value="other">Прочие расходы</option>
+      </select>
+      <select id="expenseEmployee">${employeeOptions || "<option value=''>Xodim yo'q</option>"}</select>
+      <input id="expenseAmount" type="number" step="0.01" placeholder="Summa" />
+      <input id="expenseComment" placeholder="Sabab / kommentariya" />
+      <button class="buy-btn" onclick="addExpense()">Xarajatni saqlash</button>
+      <div class="muted">Xarajat qo'shilganda summa kassadan avtomatik yechiladi.</div>
+    </div>
+    <div class="panel">
+      <div class="cash-ops-filters">
+        <div><label for="expensesStartDate">Boshlanish sanasi</label><input id="expensesStartDate" type="date" value="${escapeHtml(expensesStartDate)}" /></div>
+        <div><label for="expensesEndDate">Tugash sanasi</label><input id="expensesEndDate" type="date" value="${escapeHtml(expensesEndDate)}" /></div>
+      </div>
+      <div class="cash-ops-filters" style="grid-template-columns:repeat(2, minmax(0, 1fr));margin-top:8px;">
+        <button class="buy-btn" style="margin-top:0;" onclick="applyExpensesFilters()">Filtrlash</button>
+        <button class="secondary-btn" style="margin-top:0;" onclick="resetExpensesFilters()">Filtrlarni tozalash</button>
+      </div>
+      ${rows ? `<div class="table-wrap"><table class="report-table"><thead><tr><th>#</th><th>Sana</th><th>Turi</th><th>Summa</th><th>Izoh</th></tr></thead><tbody>${rows}</tbody></table></div>` : "Xarajatlar yo'q."}
+      <div class="cash-ops-meta muted">
+        <span>Jami: ${Number(pagination.total || 0)} ta</span>
+        ${Number(pagination.total || 0) > EXPENSES_PAGE_SIZE ? `<div class="cash-ops-pager"><button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeExpensesPage(-1)">⬅️ Oldingi</button><button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeExpensesPage(1)">Keyingi ➡️</button></div>` : ''}
+      </div>
+    </div>
+  `);
+  onExpenseCategoryChange();
+}
+
+function onExpenseCategoryChange() {
+  const category = document.getElementById('expenseCategory')?.value || 'salary';
+  const employee = document.getElementById('expenseEmployee');
+  const comment = document.getElementById('expenseComment');
+  if (employee) employee.style.display = category === 'salary' ? 'block' : 'none';
+  if (comment) comment.placeholder = category === 'salary' ? 'Izoh (ixtiyoriy)' : 'Sabab / kommentariya';
+}
+
+async function addExpense() {
+  const category = document.getElementById('expenseCategory')?.value || 'salary';
+  const employee_id = document.getElementById('expenseEmployee')?.value || '';
+  const amount = Number(document.getElementById('expenseAmount')?.value || 0);
+  const comment = String(document.getElementById('expenseComment')?.value || '').trim();
+  try {
+    await api('/webapp/api/expenses', {method:'POST', body:JSON.stringify({tg_id:userId, category, employee_id, amount, comment})});
+    tg.showAlert("✅ Xarajat qo'shildi");
+    await loadExpenses();
+    await refreshTopCash();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+function applyExpensesFilters() {
+  expensesStartDate = document.getElementById('expensesStartDate')?.value || '';
+  expensesEndDate = document.getElementById('expensesEndDate')?.value || '';
+  expensesPage = 1;
+  loadExpenses().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+function resetExpensesFilters() {
+  expensesStartDate = '';
+  expensesEndDate = '';
+  expensesPage = 1;
+  loadExpenses().catch((e) => tg.showAlert('Xato: ' + e.message));
+}
+
+function changeExpensesPage(delta) {
+  expensesPage = Math.max(1, expensesPage + Number(delta || 0));
+  loadExpenses().catch((e) => tg.showAlert('Xato: ' + e.message));
 }
 
 async function loadStats() {
@@ -2267,6 +2435,8 @@ function renderRoleMenu(currentRole) {
     {label:'Sklad', icon:ICONS.warehouse, action:'loadWarehouse()'},
     {label:'Hisobotlar', icon:ICONS.reports, action:'loadReports()'},
     {label:'Kassa', icon:ICONS.cash, action:'loadCashbox()'},
+    {label:'Xarajatlar', icon:ICONS.expenses, action:'loadExpenses()'},
+    {label:'Xodimlar', icon:ICONS.employees, action:'loadEmployees()'},
     {label:'Statistika', icon:ICONS.stats, action:'loadStats()'},
     {label:'Aloqa', icon:ICONS.contact, action:'showContact()'}
   ]);
