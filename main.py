@@ -2106,6 +2106,26 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
 
         return web.json_response({"ok": True, "expense_id": expense_id})
 
+    async def expenses_delete_api(request: web.Request) -> web.Response:
+        expense_id_raw = request.match_info.get("expense_id")
+        try:
+            expense_id = int(expense_id_raw or 0)
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Xarajat ID noto'g'ri."}, status=400)
+
+        payload = await request.json()
+        tg_id = parse_tg_id(payload.get("tg_id"))
+        if not resolve_admin_id(request, tg_id):
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+        try:
+            deleted = db.delete_expense(expense_id=expense_id, deleted_by=tg_id)
+        except ValueError:
+            return web.json_response({"error": "Xarajat summasi noto'g'ri."}, status=400)
+        if not deleted:
+            return web.json_response({"error": "Xarajat topilmadi."}, status=404)
+        return web.json_response({"ok": True})
+
     async def stats_api(request: web.Request) -> web.Response:
         tg_id = parse_tg_id(request.query.get("tg_id"))
         if not resolve_admin_id(request, tg_id):
@@ -2257,6 +2277,7 @@ async def start_web_app_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/webapp/api/employees", employees_add_api)
     app.router.add_get("/webapp/api/expenses", expenses_get_api)
     app.router.add_post("/webapp/api/expenses", expenses_add_api)
+    app.router.add_post("/webapp/api/expenses/{expense_id}/delete", expenses_delete_api)
     app.router.add_get("/webapp/api/stats", stats_api)
     app.router.add_get("/webapp/api/reports", reports_api)
     app.router.add_post("/webapp/api/reports/send-pdf", reports_send_pdf_api)

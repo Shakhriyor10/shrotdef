@@ -2056,7 +2056,7 @@ async function loadExpenses() {
     const comment = String(ex.comment || '');
     const short = comment.length > 7 ? `${escapeHtml(comment.slice(0, 7))}...` : escapeHtml(comment || '—');
     const commentCell = comment.length > 7 ? `${short} <button class="eye-btn" data-text="${encodeURIComponent(comment)}" onclick="openTextPreviewModalFromBtn(this)">👁</button>` : short;
-    return `<tr><td>${(Number(pagination.page||1)-1)*Number(pagination.page_size||EXPENSES_PAGE_SIZE)+idx+1}</td><td>${formatDateTime(ex.created_at)}</td><td>${escapeHtml(label)}</td><td>${escapeHtml(ex.amount_label)} so'm</td><td>${commentCell}</td></tr>`;
+    return `<tr><td>${(Number(pagination.page||1)-1)*Number(pagination.page_size||EXPENSES_PAGE_SIZE)+idx+1}</td><td>${formatDateTime(ex.created_at)}</td><td>${escapeHtml(label)}</td><td>${escapeHtml(ex.amount_label)} so'm</td><td>${commentCell}</td><td><button class="mini-btn danger-btn" onclick="deleteExpense(${Number(ex.id)})" title="Xarajatni o'chirish">🗑</button></td></tr>`;
   }).join('');
 
   showSection(`
@@ -2081,7 +2081,7 @@ async function loadExpenses() {
         <button class="buy-btn" style="margin-top:0;" onclick="applyExpensesFilters()">Filtrlash</button>
         <button class="secondary-btn" style="margin-top:0;" onclick="resetExpensesFilters()">Filtrlarni tozalash</button>
       </div>
-      ${rows ? `<div class="table-wrap"><table class="report-table"><thead><tr><th>#</th><th>Sana</th><th>Turi</th><th>Summa</th><th>Izoh</th></tr></thead><tbody>${rows}</tbody></table></div>` : "Xarajatlar yo'q."}
+      ${rows ? `<div class="table-wrap"><table class="report-table"><thead><tr><th>#</th><th>Sana</th><th>Turi</th><th>Summa</th><th>Izoh</th><th>Amal</th></tr></thead><tbody>${rows}</tbody></table></div>` : "Xarajatlar yo'q."}
       <div class="cash-ops-meta muted">
         <span>Jami: ${Number(pagination.total || 0)} ta</span>
         ${Number(pagination.total || 0) > EXPENSES_PAGE_SIZE ? `<div class="cash-ops-pager"><button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeExpensesPage(-1)">⬅️ Oldingi</button><button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeExpensesPage(1)">Keyingi ➡️</button></div>` : ''}
@@ -2107,6 +2107,29 @@ async function addExpense() {
   try {
     await api('/webapp/api/expenses', {method:'POST', body:JSON.stringify({tg_id:userId, category, employee_id, amount, comment})});
     tg.showAlert("✅ Xarajat qo'shildi");
+    await loadExpenses();
+    await refreshTopCash();
+  } catch (e) {
+    tg.showAlert('Xato: ' + e.message);
+  }
+}
+
+async function deleteExpense(expenseId) {
+  const confirmed = await new Promise((resolve) => {
+    const text = "Xarajatni o'chirsangiz, summa kassaga qaytariladi. Davom etasizmi?";
+    if (typeof tg.showConfirm === 'function') {
+      tg.showConfirm(text, resolve);
+      return;
+    }
+    resolve(window.confirm(text));
+  });
+  if (!confirmed) return;
+  try {
+    await api(`/webapp/api/expenses/${expenseId}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({tg_id: userId})
+    });
+    tg.showAlert("✅ Xarajat o'chirildi, pul kassaga qaytdi.");
     await loadExpenses();
     await refreshTopCash();
   } catch (e) {
