@@ -452,23 +452,8 @@
 
     .cash-ops-meta {
       margin-top: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .cash-ops-pager {
-      display: inline-flex;
-      align-items: center;
+      display: grid;
       gap: 8px;
-    }
-
-    .cash-ops-pager .secondary-btn {
-      width: auto;
-      margin-top: 0;
-      padding: 8px 12px;
     }
 
     @media (max-width: 900px) {
@@ -1960,7 +1945,7 @@ async function loadCashbox() {
       <div class="cash-ops-meta muted">
         <span>${showCashPagination ? `Jami: ${total} ta | Sahifa: ${page} / ${totalPages} | Har sahifada: ${CASH_OPERATIONS_PAGE_SIZE}` : `Jami: ${total} ta`}</span>
         ${showCashPagination ? `
-          <div class="cash-ops-pager">
+          <div class="pagination-row">
             <button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeCashboxPage(-1)">⬅️ Oldingi</button>
             <button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeCashboxPage(1)">Keyingi ➡️</button>
           </div>
@@ -2084,7 +2069,7 @@ async function loadExpenses() {
       ${rows ? `<div class="table-wrap"><table class="report-table"><thead><tr><th>#</th><th>Sana</th><th>Turi</th><th>Summa</th><th>Izoh</th><th>Amal</th></tr></thead><tbody>${rows}</tbody></table></div>` : "Xarajatlar yo'q."}
       <div class="cash-ops-meta muted">
         <span>Jami: ${Number(pagination.total || 0)} ta</span>
-        ${Number(pagination.total || 0) > EXPENSES_PAGE_SIZE ? `<div class="cash-ops-pager"><button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeExpensesPage(-1)">⬅️ Oldingi</button><button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeExpensesPage(1)">Keyingi ➡️</button></div>` : ''}
+        ${Number(pagination.total || 0) > EXPENSES_PAGE_SIZE ? `<div class="pagination-row"><button class="secondary-btn" ${pagination.has_prev ? '' : 'disabled'} onclick="changeExpensesPage(-1)">⬅️ Oldingi</button><button class="secondary-btn" ${pagination.has_next ? '' : 'disabled'} onclick="changeExpensesPage(1)">Keyingi ➡️</button></div>` : ''}
       </div>
     </div>
   `);
