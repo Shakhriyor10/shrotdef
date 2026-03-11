@@ -429,6 +429,45 @@ def add_expense(
             created_by=created_by,
         )
         return int(cur.lastrowid)
+
+
+def delete_expense(expense_id: int, deleted_by: Optional[int]) -> bool:
+    now = now_tashkent().isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, category, amount, comment
+            FROM expenses
+            WHERE id = ?
+            """,
+            (expense_id,),
+        ).fetchone()
+        if not row:
+            return False
+
+        amount = float(row["amount"] or 0)
+        if amount <= 0:
+            raise ValueError("invalid_amount")
+
+        conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+        conn.execute(
+            "UPDATE cashbox SET amount = amount + ?, updated_at = ? WHERE id = 1",
+            (amount, now),
+        )
+        _add_cashbox_operation(
+            conn,
+            operation_type="income",
+            amount=amount,
+            reason="expense_revert",
+            note=f"Xarajat #{expense_id} o'chirildi. {row['comment'] or ''}".strip(),
+            reference_type="expense",
+            reference_id=expense_id,
+            created_at=now,
+            created_by=deleted_by,
+        )
+        return True
+
+
         try:
             conn.execute(
                 "ALTER TABLE products ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0"
